@@ -28,3 +28,7 @@ export/libraries.json
 *.swp
 .idea/
 .vscode/
+
+# Python bytecode from the export/fixture helpers
+__pycache__/
+*.pyc
