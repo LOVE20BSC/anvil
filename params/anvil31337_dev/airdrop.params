@@ -1,0 +1,33 @@
+# Airdrop — the Launch distributor for the root token.
+#
+# The contract is the canonical share-based Merkle airdrop from LOVE20TKM/burn (vendored into
+# src/vendor/Airdrop.sol with its origin commit recorded there). Its constructor takes five
+# immutables: sourceChainId, sourceBlockNumber, sourceBurnAddress, merkleRoot, totalShare.
+#
+# The merkle root and totalShare are NOT written here: they are derived data, so they live in the
+# snapshot that script/gen_airdrop_fixture.py generates (fixtures/airdrop/anvil31337_dev.json), and
+# DeployLocal.s.sol reads them from that file. Keeping one copy means a stale param cannot disagree
+# with the proofs the frontend is served. This file pins the PROVENANCE metadata that is baked into
+# the contract, plus the snapshot path, and DeployLocal asserts the two agree:
+#   sourceChainId  == snapshot.sourceChainId
+#   sourceBlockNumber == snapshot.sourceBlockNumber
+#   sourceBurnAddress == snapshot.sourceBurnAddress
+#   merkleRoot    == snapshot.merkleRoot
+#   totalShare    == snapshot.totalShare
+#
+# The provenance values are synthetic and say so: this local chain has no Burn deployment, so there
+# is no real burn activity to snapshot. They are non-zero (the contract rejects zero) and unique to
+# this profile (31337 / 1 / a clearly fake burn address) so nobody mistakes them for mainnet data.
+SOURCE_CHAIN_ID=31337
+SOURCE_BLOCK_NUMBER=1
+SOURCE_BURN_ADDRESS=0x00000000000000000000000000000000C0FFEE01
+AIRDROP_SNAPSHOT_FILE=fixtures/airdrop/anvil31337_dev.json
+# 1e18 == 100% of the distributable share; the vendored contract rejects 0 and >1e18.
+TOTAL_SHARE=1e18
+# The launch distributor is the Airdrop contract itself; Launch mints LAUNCH_AMOUNT to it in the
+# LOVE20Token constructor. This is wired programmatically by DeployLocal.s.sol (the address only
+# exists at run time), so there is no DISTRIBUTOR_ADDRESS key to get stale.
+#
+# The vendored Airdrop does NOT implement ILaunchDistributor (no onTokenLaunched callback) - verified
+# by compiling and by `cast call` in script/verify.sh. Child-token launches therefore must use
+# DistributorMode.NoCallback on this chain; documented in README "Known limitations".

@@ -1,0 +1,17 @@
+# Accounts used by the local bootstrap.
+#
+# The values are anvil's documented deterministic development accounts (mnemonic
+# "test test test test test test test test test test test junk", path m/44'/60'/0'/0/<index>).
+# They are public knowledge, printed by every anvil start, and must never hold value on a real
+# network. They live in a committed .params file because a *local* bootstrap has to be reproducible
+# without a keystore prompt or a hand-edited file - see README "Secrets".
+#
+# DEPLOY_ACCOUNT_INDEX selects the broadcasting account (anvil #0). The seed set is the contiguous
+# range SEED_ACCOUNT_START_INDEX .. +SEED_ACCOUNT_COUNT-1. Every seed account must appear in the
+# airdrop fixture with a non-zero share; script/SeedFlow.s.sol asserts fixture account == derived
+# address before claiming, so a fixture generated for a different set fails loudly instead of
+# silently seeding the wrong accounts.
+SEED_MNEMONIC="test test test test test test test test test test test junk"
+DEPLOY_ACCOUNT_INDEX=0
+SEED_ACCOUNT_START_INDEX=0
+SEED_ACCOUNT_COUNT=10

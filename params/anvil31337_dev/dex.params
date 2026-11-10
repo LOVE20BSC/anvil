@@ -1,0 +1,24 @@
+# WETH + UniswapV2 (from ../dex).
+#
+# WETH is deployed from the sibling repo's own WETH9Configurable source, which is the contract the
+# org's dex deployment uses locally (name/symbol configurable, `deposit()`-only faucet, no mint).
+# It is compiled inside THIS project so the deployment goes through our script; ../dex is compiled
+# read-only and never written to.
+#
+# The UniswapV2 Factory / Router02 / Pair bytecode is NOT recompiled: it is read from the published
+# artifacts in ../dex/build (solc 0.5.16 / 0.6.6, optimizer 999999) and asserted against the three
+# keccak constants in ../dex/script/deploy/DeployUniswapV2.s.sol. Recompiling with our 0.8.37
+# toolchain would change the Pair init-code hash and break the Router's CREATE2 pairing, so the
+# artifacts are the only correct input. `make preflight` checks ../dex/build exists; if it is absent
+# the target fails with the exact `make -C ../dex build` command to run (we never run it ourselves,
+# because that writes into the dex repo).
+#
+# WETH_ADDRESS=0x0 means "deploy WETH locally" (WETH_NAME + WETH_SYMBOL must then be non-empty).
+# A non-zero WETH_ADDRESS adopts an external WETH and both name/symbol must be empty - the same
+# three-parameter XOR rule the dex repo enforces. Only the local branch is implemented here.
+WETH_ADDRESS=0x0000000000000000000000000000000000000000
+WETH_NAME="Test Wrapped ETH"
+WETH_SYMBOL=TestWETH
+# The Factory is deployed with feeToSetter = address(0), which permanently locks the 0.30% fee at
+# zero: the ADR ../dex/docs/adr/0001-disable-protocol-fee.md. Asserted after deployment.
+FACTORY_FEE_TO_SETTER=0x0000000000000000000000000000000000000000

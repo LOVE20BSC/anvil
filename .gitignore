@@ -1,0 +1,30 @@
+# Build output (forge). Anchored with a leading slash so only THIS project's directories are ignored:
+# an unanchored `lib/` would also hide script/lib/ (the params loader), and `out/` would hide any
+# future export subdirectory named out.
+/out/
+/cache/
+/broadcast/
+
+# Solidity dependencies: this project has none of its own. The sibling checkouts are reached through
+# the committed relative symlinks in .siblings/ (NOT ignored - they are the remapping anchors).
+/lib/
+
+# Local chain runtime state and logs
+/.anvil/
+*.log
+
+# Intermediate export artifacts. The FINAL export is committed:
+#   export/deployments/<profile>.json   address book + block numbers + chain id (frontend input)
+#   export/abis/<Contract>.json         the ABI array per contract (frontend input)
+#   export/airdrop/<profile>.json       the snapshot with proofs (frontend input)
+#   export/VERIFIED.md                  the verification report
+# These three are re-generated on every run and would churn the diff for no benefit:
+export/deployments/*.addresses.json
+export/deployments/*.multicall3.json
+export/libraries.json
+
+# Editor / OS noise
+.DS_Store
+*.swp
+.idea/
+.vscode/

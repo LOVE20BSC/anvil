@@ -1,0 +1,11 @@
+@forge-std/=.siblings/core/lib/forge-std/src/
+@openzeppelin/contracts/=.siblings/core/lib/openzeppelin-contracts/contracts/
+@libs/=.siblings/libs/src/
+@core/=.siblings/core/src/
+@action/=.siblings/action/src/
+@group-chat/=.siblings/group-chat/src/
+core/=.siblings/core/
+action/=.siblings/action/
+group-chat/=.siblings/group-chat/
+libs/=.siblings/libs/
+dex/=.siblings/dex/

@@ -1,0 +1,60 @@
+# core — Phase / Launch / MemberNFT / Stake / Submit / Vote / Mint.
+#
+# OUR values. The sibling repos' anvil31337_dev/core.params is stale relative to their own
+# DeployCore.s.sol (it still carries DISTRIBUTOR_ADDRESS, which is now a runtime address) and the
+# previous frontend checkouts each hardcoded a different LAUNCH_COUNT_THRESHOLD_RATIO. Everything
+# below is passed explicitly to the contracts; nothing is inherited from those files.
+#
+# Key names match the ones DeployCore.s.sol reads, because DeployLocal.s.sol reuses that repo's
+# deploy body (DeployCore._deployContracts) to keep the deployed order and the CREATE nonce
+# predictions intact. The mapping is 1:1, so `grep vm.envUint core/script/deploy/DeployCore.s.sol`
+# explains any key here.
+#
+# Dev tuning: a phase is 120 blocks and anvil mines one block per second, so a phase is 2 minutes
+# and the full 4-phase round (vote -> verify -> reward -> join) takes ~8 minutes. That is short
+# enough to click through the frontend and long enough that the whole bootstrap stays inside phase 1.
+
+# --- root token -----------------------------------------------------------------------------
+TOKEN_NAME=TestLOVE20@WETH
+TOKEN_SYMBOL=TestLOVE20
+LAUNCH_AMOUNT=1e27
+MAX_SUPPLY=1e28
+
+# --- MemberNFT ------------------------------------------------------------------------------
+# mintCost = (MAX_SUPPLY - totalSupply) / BASE_DIVISOR, multiplied by MULTIPLIER for every byte a
+# name is shorter than BYTES_THRESHOLD. With these values a 7+ byte name costs 9e19 tokens, i.e.
+# 0.009% of the 1e27 genesis supply - affordable for every seeded account after one airdrop claim.
+MEMBER_BASE_DIVISOR=1e7
+MEMBER_BYTES_THRESHOLD=7
+MEMBER_MULTIPLIER=10
+MEMBER_MAX_NAME_LENGTH=32
+
+# --- Phase ----------------------------------------------------------------------------------
+# currentPhase() = 1 + (block - ORIGIN_BLOCKS) / ORIGIN_PHASE_BLOCKS, so phase 1 starts at the first
+# block after deployment and `cast call currentPhase()` returns 1 for the whole bootstrap.
+PHASE_ORIGIN_BLOCKS=1
+PHASE_ORIGIN_PHASE_BLOCKS=120
+PHASE_TARGET_SECONDS=120
+PHASE_ADJUST_THRESHOLD=1e17
+PHASE_SYNC_OBSERVATION_LIMIT=10
+
+# --- Launch ---------------------------------------------------------------------------------
+LAUNCH_COUNT_THRESHOLD_RATIO=1e17
+MAX_LAUNCH_COUNT=10000
+TOKEN_SYMBOL_LENGTH=6
+
+# --- Mint (1e18 = 100%) ----------------------------------------------------------------------
+PROPOSAL_REWARD_MIN_VOTE_RATIO=5e16
+ROUND_REWARD_GOV_RATIO=5e14
+ROUND_REWARD_PROPOSAL_RATIO=5e14
+
+# --- Submit ----------------------------------------------------------------------------------
+SUBMIT_MIN_RATIO=5e15
+
+# --- Stake -----------------------------------------------------------------------------------
+PROMISED_WAITING_PHASES_MIN=1
+PROMISED_WAITING_PHASES_MAX=100
+BOOST_STAKE_SUPPLY_FACTOR=2
+BOOST_STAKE_MULTIPLIER=5
+# Must be <= MAX_FEE_SETTLEMENT_RATIO (2.5e15) in Stake; 0.25% == the pool fee.
+FEE_SETTLEMENT_RATIO=25e14

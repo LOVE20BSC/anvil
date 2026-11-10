@@ -1,0 +1,26 @@
+# seed — the state the frontend is tested against.
+#
+# The airdrop fixture (fixtures/airdrop/anvil31337_dev.json) is generated from the FIRST
+# SEED_ACCOUNT_COUNT accounts of SEED_MNEMONIC, so "which accounts have a share" is decided in
+# accounts.params, not here. This file decides what those accounts then DO on chain.
+#
+# SEED_MEMBER_COUNT accounts claim their airdrop share and mint a MemberNFT: the frontend needs at
+# least two identities to test group chat, admin lists and proposal flows. SEED_LIQUIDITY_MEMBER_INDEX
+# is the member that additionally stakes liquidity into the root token's pair (that pair is created
+# empty by Launch._ensurePair - it has zero reserves until this step runs).
+#
+# Token amounts are absolute (not shares): the root token has 18 decimals and 1e27 total supply, so
+# 2e23 community tokens + 100e18 WETH is a ~2000 token/ETH initial price, deep enough that the
+# frontend's quotes and slippage previews do not move on every click.
+SEED_MEMBER_COUNT=5
+SEED_MEMBER_NAME_PREFIX=dev-member-
+SEED_LIQUIDITY_MEMBER_INDEX=0
+SEED_LIQUIDITY_TOKEN_AMOUNT=2e23
+SEED_LIQUIDITY_PARENT_TOKEN_AMOUNT=1e20
+# 5e16 == 5%: the first liquidity add has no reserves to deviate from, so slippage is inert on the
+# first stake; it is pinned anyway so later re-runs are not accidentally loose.
+SEED_LIQUIDITY_SLIPPAGE=5e16
+SEED_LIQUIDITY_PROMISED_WAITING_PHASES=1
+# ETH handed to every seed account so a developer can send transactions from any of them without
+# leaving the frontend. 100 ETH each, out of account #0's 10,000 ETH anvil balance.
+SEED_ETH_PER_ACCOUNT=100e18

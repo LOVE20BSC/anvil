@@ -1,0 +1,16 @@
+# action — ActionTarget / LpExecutor / GroupActionExecutor / GroupServiceExecutor.
+#
+# GROUP_ACTION_SPLITS is the verification-open schedule (not reward tiers): strictly increasing,
+# each element in (0, 1e18), passed to GroupActionExecutor's constructor as uint256[]. Rank 1 always
+# opens at the start of the verification phase; rank k>=2 opens at splits[k-2] of the phase.
+# `1e17,4e17,7e17` therefore means rank 2 at 10%, rank 3 at 40%, rank 4 at 70%.
+# An empty value means "only rank 1 can verify" and is allowed by the sibling script; it is not
+# selected here because the frontend's verifier-selection screen needs the extra ranks.
+GROUP_ACTION_SPLITS=1e17,4e17,7e17
+
+# The four GroupActionExecutor / GroupServiceExecutor libraries are NOT configured here: their
+# addresses are compile-time link targets, so they cannot come from a params file that is read after
+# compilation. script/DeployLibraries.s.sol deploys them first, script/local.sh reads the resulting
+# addresses out of that run's broadcast JSON, and the addresses are passed to `forge script
+# --libraries` and exported to export/deployments/anvil31337_dev.json (address book keys
+# GROUP_ACTION_JOIN_LIBRARY_ADDRESS and friends). See README "Linked libraries".

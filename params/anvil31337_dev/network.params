@@ -1,0 +1,26 @@
+# Local chain process + connection parameters for the anvil31337_dev profile.
+#
+# These are OUR values (this repo is the source of truth for the local chain), not a copy of any
+# sibling repo's network.params. The sibling files only pin CHAIN_ID / RPC_URL / ETHERSCAN_API_KEY;
+# the process flags below are what `make anvil` needs and they are the reason this file exists.
+#
+# The chain is started by `anvil` with exactly these flags:
+#   --chain-id $CHAIN_ID --host $ANVIL_HOST --port $ANVIL_PORT --block-time $ANVIL_BLOCK_TIME
+#   --accounts $ANVIL_ACCOUNTS --balance $ANVIL_BALANCE --gas-limit $ANVIL_GAS_LIMIT
+#   --code-size-limit $ANVIL_CODE_SIZE_LIMIT --base-fee $ANVIL_BASE_FEE
+#
+# RPC_URL is DERIVED from ANVIL_HOST/ANVIL_PORT by script/lib/params.sh (http://<host>:<port>) and
+# is exported for every forge/cast call. It is deliberately not a file key: overriding the port with
+# `make bootstrap PORT=8555` must move the RPC endpoint with it, and a second key could disagree.
+#
+# `--block-time 1` means one block per second even when idle, so a 100-block phase is ~1m40s of wall
+# clock. PHASE_ORIGIN_BLOCKS / PHASE_ORIGIN_PHASE_BLOCKS in core.params are chosen against this.
+CHAIN_ID=31337
+ANVIL_HOST=127.0.0.1
+ANVIL_PORT=8545
+ANVIL_BLOCK_TIME=1
+ANVIL_ACCOUNTS=20
+ANVIL_BALANCE=10000
+ANVIL_GAS_LIMIT=60000000
+ANVIL_CODE_SIZE_LIMIT=100000
+ANVIL_BASE_FEE=1000000000

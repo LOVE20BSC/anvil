@@ -1,0 +1,49 @@
+# Local-chain deployment project for the LOVE20BSC protocol stack.
+#
+# This project owns NO protocol source: every contract comes from a sibling checkout
+# (../core, ../action, ../group-chat, ../libs, ../dex) which are mounted read-only through the
+# remappings in remappings.txt. Only src/vendor/ holds a copied file (the TKM Airdrop) and only
+# out/, cache/, broadcast/, export/ and .anvil/ are written.
+#
+# The compiler settings below are pinned to the sibling repos' settings (0.8.37 / osaka / 200 runs /
+# no metadata) because the four action linked libraries are deployed by THIS project and linked into
+# bytecode compiled HERE: a different optimiser or metadata setting would still work, but keeping
+# them equal makes the local stack byte-for-byte comparable with a real deployment.
+[profile.default]
+src = "src"
+script = "script"
+test = "test"
+out = "out"
+libs = ["lib"]
+solc_version = "0.8.37"
+evm_version = "osaka"
+optimizer = true
+optimizer_runs = 200
+bytecode_hash = "none"
+cbor_metadata = false
+auto_detect_remappings = false
+# Sibling sources live outside this project root; solc must be allowed to read them. They are reached
+# through the committed relative symlinks in .siblings/ (see remappings.txt and README "Remappings").
+allow_paths = [".siblings", "../core", "../action", "../group-chat", "../libs", "../dex"]
+# The dex creation bytecode (UniswapV2 Factory/Router/Pair) is read from ../dex/build, which is a
+# gitignored build output of that repo. We never write there: the artifacts are consumed as-is and
+# their keccak hashes are asserted against the constants in that repo's DeployUniswapV2.s.sol.
+fs_permissions = [
+  { access = "read", path = "./fixtures" },
+  { access = "read-write", path = "./export" },
+  { access = "read", path = "./.siblings/dex/build" },
+  { access = "read", path = "../dex/build" },
+]
+
+# Linked libraries (GroupActionJoin / GroupActionManager / GroupActionVerify / GroupRecipients) are
+# NOT configured here on purpose. Their addresses cannot exist before the libraries are deployed, and
+# a hardcoded address block in this file would go stale the moment the chain is reset. Instead
+# `script/local.sh` deploys them first and passes the four `<source unit>:<name>:<address>` tuples in
+# FOUNDRY_LIBRARIES when it runs `forge script` (see README "Linked libraries", including why the
+# `--libraries` CLI flag cannot be used: it accepts only one library per invocation in forge 1.8.1).
+
+[lint]
+lint_on_build = false
+
+[fmt]
+line_length = 120
