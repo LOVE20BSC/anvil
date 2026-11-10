@@ -12,9 +12,11 @@ Chain: **chainId 31337**, `http://127.0.0.1:8545`, `--block-time 1 --accounts 20
 [`params/anvil31337_dev/network.params`](params/anvil31337_dev/network.params)).
 
 The four sibling repositories (`core/`, `action/`, `group-chat/`, `libs/`, `dex/`) are **read-only
-inputs**. Nothing in this repo writes into them: they are only compiled (remapped through
-`.siblings/*` symlinks) and, for `dex`, their published creation bytecode is read out of
-`dex/build/`.
+inputs**. Nothing in this repo writes into them. Their Solidity sources are compiled through the
+`.siblings/*` remappings, and the UniswapV2 **Factory/Router/Pair** creation bytecode is read out of
+`dex/build/` instead of being recompiled. `WETH9Configurable` is the exception: its source
+(`dex/script/WETH9Configurable.sol`) is imported and compiled by this repo, then deployed with
+`new WETH9Configurable(...)`; no WETH bytecode is read from `dex/build`.
 
 ---
 
@@ -55,7 +57,7 @@ Everything else (`core/out`, `action/out`, `group-chat/out`) is only needed for 
 | 6 | linked libraries | `make libraries` | the 4 action libraries (ERC-20 style CREATEs, addresses to `export/libraries.json`) |
 | 7 | deploy | `make deploy` | WETH, UniswapV2, Airdrop, core (7), action (4), group-chat (12) |
 | 8 | seed | `make seed` | airdrop claims, 5 MemberNFTs, liquidity + governance stake, ETH top-ups |
-| 9 | export | `make export` | `export/deployments/anvil31337_dev.json`, `export/abis/*.json` |
+| 9 | export | `make export` | `export/deployments/anvil31337_dev.json`, `export/abis/*.json` (feeTo/phase/token metadata read from the node and params) |
 | 10 | verify | `make verify` | `cast` assertions → `export/VERIFIED.md`, non-zero exit on any failure |
 
 Each step is independently runnable and idempotent where that is meaningful (`preflight`, `fixture`,
@@ -69,9 +71,9 @@ contracts are simply orphaned — fine on a throwaway chain, and the address boo
 
 ```
 Multicall3                      canonical address, upstream signed tx
-WETH9Configurable               dex/script/WETH9Configurable.sol, compiled here
-UniswapV2Factory                dex/build artifact, feeToSetter = 0 (protocol fee locked)
-UniswapV2Router02               dex/build artifact, (factory, WETH)
+WETH9Configurable               dex/script/WETH9Configurable.sol, source compiled by this repo
+UniswapV2Factory                dex/build artifact (not recompiled), feeToSetter = 0 (fee locked)
+UniswapV2Router02               dex/build artifact (not recompiled), (factory, WETH)
 Airdrop                         ← MUST be before core: it is Launch's distributor
 Phase
 Launch                          creates LOVE20Token and its (empty) Uniswap pair
@@ -123,39 +125,39 @@ starts at nonce 0 and the transaction order is fixed.
 | key | contract | address | block |
 |---|---|---|---|
 | `MULTICALL3_ADDRESS` | Multicall3 | `0xcA11bde05977b3631167028862bE2a173976CA11` | 1 |
-| `GROUP_ACTION_JOIN_LIBRARY_ADDRESS` | GroupActionJoin | `0x5FbDB2315678afecb367f032d93F642f64180aa3` | 16 |
-| `GROUP_ACTION_MANAGER_LIBRARY_ADDRESS` | GroupActionManager | `0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512` | 16 |
-| `GROUP_ACTION_VERIFY_LIBRARY_ADDRESS` | GroupActionVerify | `0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0` | 16 |
-| `GROUP_RECIPIENTS_LIBRARY_ADDRESS` | GroupRecipients | `0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9` | 16 |
-| `WETH_ADDRESS` | WETH9 | `0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9` | 36 |
-| `UNISWAP_V2_FACTORY_ADDRESS` | UniswapV2Factory | `0x5FC8d32690cc91D4c39d9d3abcBD16989F875707` | 36 |
-| `UNISWAP_V2_ROUTER02_ADDRESS` | UniswapV2Router02 | `0x0165878A594ca255338adfa4d48449f69242Eb8F` | 36 |
-| `UNISWAP_V2_PAIR_ADDRESS` | UniswapV2Pair | `0x3FC12a5abAe69C8Eee58C37cEDC266751507620D` | 36 |
-| `AIRDROP_ADDRESS` | Airdrop | `0xa513E6E4b8f2a923D98304ec87F64353C4D5C853` | 36 |
-| `LOVE20_TOKEN_ADDRESS` | LOVE20Token | `0x8aCd85898458400f7Db866d53FCFF6f0D49741FF` | 36 |
-| `PHASE_ADDRESS` | Phase | `0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6` | 36 |
-| `LAUNCH_ADDRESS` | Launch | `0x8A791620dd6260079BF849Dc5567aDC3F2FdC318` | 36 |
-| `MEMBER_NFT_ADDRESS` | MemberNFT | `0x610178dA211FEF7D417bC0e6FeD39F05609AD788` | 36 |
-| `STAKE_ADDRESS` | Stake | `0xB7f8BC63BbcaD18155201308C8f3540b07f84F5e` | 36 |
-| `SUBMIT_ADDRESS` | Submit | `0xA51c1fc2f0D1a1b8494Ed1FE312d7C3a78Ed91C0` | 36 |
-| `VOTE_ADDRESS` | Vote | `0x0DCd1Bf9A1b36cE34237eEaFef220932846BCD82` | 36 |
-| `MINT_ADDRESS` | Mint | `0x9A676e781A523b5d0C0e43731313A708CB607508` | 36 |
-| `ACTION_TARGET_ADDRESS` | ActionTarget | `0x0B306BF915C4d645ff596e518fAf3F9669b97016` | 36 |
-| `LP_EXECUTOR_ADDRESS` | LpExecutor | `0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1` | 36 |
-| `GROUP_ACTION_EXECUTOR_ADDRESS` | GroupActionExecutor | `0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE` | 36 |
-| `GROUP_SERVICE_EXECUTOR_ADDRESS` | GroupServiceExecutor | `0x68B1D87F95878fE05B998F19b66F4baba5De1aed` | 36 |
-| `GROUP_ADMIN_ADDRESS` | GroupAdmin | `0x3Aa5ebB10DC797CAC828524e59A333d0A371443c` | 37 |
-| `GROUP_CHAT_ADDRESS` | GroupChat | `0xc6e7DF5E7b4f2A278906862b61205850344D4e7d` | 36 |
-| `GROUP_CHAT_BAN_LIST_ADDRESS` | GroupChatBanList | `0x59b670e9fA9D0A427751Af201D676719a970857b` | 36 |
-| `ADMIN_BAN_SOURCE_ADDRESS` | AdminBanSource | `0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1` | 36 |
-| `GOV_VOTED_BAN_SOURCE_ADDRESS` | GovVotedBanSource | `0x322813Fd9A801c5507c9de605d63CEA4f2CE6c44` | 36 |
-| `GROUP_MEMBER_ADDRESS` | GroupMember | `0xa85233C63b9Ee964Add6F2cffe00Fd84eb32338f` | 36 |
-| `GROUP_MEMBER_SCOPE_ADDRESS` | GroupMemberScope | `0x4A679253410272dd5232B3Ff7cF5dbB88f295319` | 36 |
-| `GROUP_JOIN_SCOPE_SOURCE_ADDRESS` | GroupJoinScopeSource | `0x7a2088a1bFc9d81c55368AE168C2C02570cB814F` | 36 |
-| `TOKEN_MAIN_MANAGER_ADDRESS` | TokenMainManager | `0x09635F643e140090A9A8Dcd712eD6285858ceBef` | 36 |
-| `TOKEN_GOV_MANAGER_ADDRESS` | TokenGovManager | `0xc5a5C42992dECbae36851359345FE25997F5C42d` | 36 |
-| `TOKEN_ACTION_GOV_MANAGER_ADDRESS` | TokenActionGovManager | `0x67d269191c92Caf3cD7723F116c85e6E9bf55933` | 36 |
-| `TOKEN_ACTION_MAIN_MANAGER_ADDRESS` | TokenActionMainManager | `0xE6E340D132b5f46d1e472DebcD681B2aBc16e57E` | 36 |
+| `GROUP_ACTION_JOIN_LIBRARY_ADDRESS` | GroupActionJoin | `0x5FbDB2315678afecb367f032d93F642f64180aa3` | 11 |
+| `GROUP_ACTION_MANAGER_LIBRARY_ADDRESS` | GroupActionManager | `0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512` | 11 |
+| `GROUP_ACTION_VERIFY_LIBRARY_ADDRESS` | GroupActionVerify | `0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0` | 11 |
+| `GROUP_RECIPIENTS_LIBRARY_ADDRESS` | GroupRecipients | `0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9` | 11 |
+| `WETH_ADDRESS` | WETH9 | `0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9` | 29 |
+| `UNISWAP_V2_FACTORY_ADDRESS` | UniswapV2Factory | `0x5FC8d32690cc91D4c39d9d3abcBD16989F875707` | 29 |
+| `UNISWAP_V2_ROUTER02_ADDRESS` | UniswapV2Router02 | `0x0165878A594ca255338adfa4d48449f69242Eb8F` | 29 |
+| `UNISWAP_V2_PAIR_ADDRESS` | UniswapV2Pair | `0x3FC12a5abAe69C8Eee58C37cEDC266751507620D` | 29 |
+| `AIRDROP_ADDRESS` | Airdrop | `0xa513E6E4b8f2a923D98304ec87F64353C4D5C853` | 29 |
+| `LOVE20_TOKEN_ADDRESS` | LOVE20Token | `0x8aCd85898458400f7Db866d53FCFF6f0D49741FF` | 29 |
+| `PHASE_ADDRESS` | Phase | `0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6` | 29 |
+| `LAUNCH_ADDRESS` | Launch | `0x8A791620dd6260079BF849Dc5567aDC3F2FdC318` | 29 |
+| `MEMBER_NFT_ADDRESS` | MemberNFT | `0x610178dA211FEF7D417bC0e6FeD39F05609AD788` | 29 |
+| `STAKE_ADDRESS` | Stake | `0xB7f8BC63BbcaD18155201308C8f3540b07f84F5e` | 29 |
+| `SUBMIT_ADDRESS` | Submit | `0xA51c1fc2f0D1a1b8494Ed1FE312d7C3a78Ed91C0` | 29 |
+| `VOTE_ADDRESS` | Vote | `0x0DCd1Bf9A1b36cE34237eEaFef220932846BCD82` | 29 |
+| `MINT_ADDRESS` | Mint | `0x9A676e781A523b5d0C0e43731313A708CB607508` | 29 |
+| `ACTION_TARGET_ADDRESS` | ActionTarget | `0x0B306BF915C4d645ff596e518fAf3F9669b97016` | 29 |
+| `LP_EXECUTOR_ADDRESS` | LpExecutor | `0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1` | 29 |
+| `GROUP_ACTION_EXECUTOR_ADDRESS` | GroupActionExecutor | `0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE` | 29 |
+| `GROUP_SERVICE_EXECUTOR_ADDRESS` | GroupServiceExecutor | `0x68B1D87F95878fE05B998F19b66F4baba5De1aed` | 29 |
+| `GROUP_ADMIN_ADDRESS` | GroupAdmin | `0x3Aa5ebB10DC797CAC828524e59A333d0A371443c` | 30 |
+| `GROUP_CHAT_ADDRESS` | GroupChat | `0xc6e7DF5E7b4f2A278906862b61205850344D4e7d` | 29 |
+| `GROUP_CHAT_BAN_LIST_ADDRESS` | GroupChatBanList | `0x59b670e9fA9D0A427751Af201D676719a970857b` | 29 |
+| `ADMIN_BAN_SOURCE_ADDRESS` | AdminBanSource | `0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1` | 29 |
+| `GOV_VOTED_BAN_SOURCE_ADDRESS` | GovVotedBanSource | `0x322813Fd9A801c5507c9de605d63CEA4f2CE6c44` | 29 |
+| `GROUP_MEMBER_ADDRESS` | GroupMember | `0xa85233C63b9Ee964Add6F2cffe00Fd84eb32338f` | 29 |
+| `GROUP_MEMBER_SCOPE_ADDRESS` | GroupMemberScope | `0x4A679253410272dd5232B3Ff7cF5dbB88f295319` | 29 |
+| `GROUP_JOIN_SCOPE_SOURCE_ADDRESS` | GroupJoinScopeSource | `0x7a2088a1bFc9d81c55368AE168C2C02570cB814F` | 29 |
+| `TOKEN_MAIN_MANAGER_ADDRESS` | TokenMainManager | `0x09635F643e140090A9A8Dcd712eD6285858ceBef` | 29 |
+| `TOKEN_GOV_MANAGER_ADDRESS` | TokenGovManager | `0xc5a5C42992dECbae36851359345FE25997F5C42d` | 29 |
+| `TOKEN_ACTION_GOV_MANAGER_ADDRESS` | TokenActionGovManager | `0x67d269191c92Caf3cD7723F116c85e6E9bf55933` | 29 |
+| `TOKEN_ACTION_MAIN_MANAGER_ADDRESS` | TokenActionMainManager | `0xE6E340D132b5f46d1e472DebcD681B2aBc16e57E` | 29 |
 
 Notes:
 
@@ -167,10 +169,14 @@ Notes:
 * **Addresses are deterministic, block numbers are not.** `--block-time 1` mines on a wall clock, so
   how many transactions land in one block depends on machine speed; a re-run gives the same addresses
   at slightly different heights. Never key anything off the block numbers.
-* `WETH`/`Factory`/`Router`/`Pair` bytecode is **not recompiled** here: the published dex artifacts
-  are read and hash-checked against the constants in
+* `UniswapV2Factory`/`Router02`/`Pair` creation bytecode is **not recompiled** here: the published
+  dex artifacts are read and hash-checked against the constants in
   `dex/script/deploy/DeployUniswapV2.s.sol` (`PAIR_INIT_CODE_HASH`, `FACTORY_CREATION_HASH`,
   `ROUTER_CREATION_HASH`), because the Pair init-code hash is embedded in the Router.
+* `WETH9Configurable` is **not** one of those artifacts: its source
+  (`dex/script/WETH9Configurable.sol`) is imported and compiled by this repo, and `DeployLocal`
+  deploys it with `new WETH9Configurable(...)`. No WETH bytecode is read from `dex/build`; the
+  source is read-only, the compilation is ours.
 
 ---
 
@@ -192,15 +198,26 @@ export/
   "chainId": 31337,
   "rpcUrl": "http://127.0.0.1:8545",
   "deployer": "0xf39Fd…2266",
-  "deployBlock": 37,
-  "contracts": { "Launch": { "address": "0x…", "blockNumber": 43, "group": "core" }, … },
+  "deployBlock": 30,
+  "contracts": { "Launch": { "address": "0x…", "blockNumber": 29, "group": "core" }, … },
   "addresses": { "LAUNCH_ADDRESS": "0x…", … },      // same keys as params files
   "libraries": { "GroupActionJoin": "0x…", … },
-  "uniswapV2": { "factory": "0x…", "router02": "0x…", "weth": "0x…", "pair": "0x…", "pairInitCodeHash": "0x96e8…" },
+  "uniswapV2": { "factory": "0x…", "router02": "0x…", "weth": "0x…", "pair": "0x…", "feeTo": "0x0000000000000000000000000000000000000000", "pairInitCodeHash": "0x96e8…" },
   "airdrop": { "address": "0x…", "merkleRoot": "0x…", "totalShare": "1000000000000000000", "snapshotFile": "…" },
   "params": { "tokenName": "TestLOVE20@WETH", "phaseOriginPhaseBlocks": 120, "groupActionSplits": ["…"] }
 }
 ```
+
+`deployer`, `params.*` and `uniswapV2.feeTo` are data, not an echo of the shell that happened to run
+`make export`: `export.py` takes the deployer from the deploy broadcast receipts (and asserts it
+agrees with `DEPLOYER_ADDRESS` when that is set), parses the token/phase/seed/split values out of
+`params/anvil31337_dev/*.params`, and calls `feeTo()` (and `feeToSetter()`) on the factory over the
+live node. A non-zero `feeTo` is exported as-is with a warning; the deployment's
+`feeToSetter = address(0)` lock is what makes it zero on this profile, and `make verify` asserts both
+the chain value and the exported value. Missing inputs fail the export instead of writing
+`""`/`0` placeholders. `rpcUrl` stays the profile's canonical endpoint from `network.params`
+(`http://127.0.0.1:8545`, what a fresh `make bootstrap` serves) even when the verification run uses
+`PORT=8555`.
 
 ABIs exported: `MemberNFT`, `LOVE20Token`, `Launch`, `Stake`, `Submit`, `Vote`, `Mint`, `Phase`,
 `ActionTarget`, `LpExecutor`, `GroupActionExecutor`, `GroupServiceExecutor`, `GroupChat`, `Airdrop`,
@@ -328,7 +345,7 @@ Headline values from the verified run:
 |---|---|
 | chain id | `31337` |
 | code present | all 34 exported addresses |
-| `Phase.currentPhase()` | `1` |
+| `Phase.currentPhase()` | `3` on the committed run (`1` right after a fresh bootstrap; the chain mines every second) |
 | `Phase.ORIGIN_PHASE_BLOCKS()` | `120` (= 2 min per phase at `--block-time 1`) |
 | `MemberNFT.totalSupply()` | `5` |
 | `MemberNFT.balanceOf(seed[0])` | `1` |
@@ -346,7 +363,9 @@ Headline values from the verified run:
 
 The report also re-checks the wiring graph (`router.factory()`, `router.WETH()`, `factory.feeTo()==0`,
 `token.MINTER()`, `Launch.FIRST_TOKEN_ADDRESS()`, `Stake.VOTE_ADDRESS()`,
-`GroupChat.GROUP_ADDRESS()`, …).
+`GroupChat.GROUP_ADDRESS()`, …) and that the committed export's `deployer`, `params.*` and
+`uniswapV2.feeTo` agree with the chain (including a non-zero deployer ETH balance), so a stale or
+hand-edited export cannot pass `make verify`.
 
 > **Port note.** The committed verification ran with `PORT=8555` because an unrelated anvil process
 > (a different, older frontend checkout) had been holding `127.0.0.1:8545` for a day; this repo does

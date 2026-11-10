@@ -39,7 +39,7 @@ help:
 	@echo "    make libraries   deploy the four linked action libraries"
 	@echo "    make deploy      deploy WETH + UniswapV2 + Airdrop + core + action + group-chat"
 	@echo "    make seed        airdrop claims, MemberNFTs, liquidity, ETH balances"
-	@echo "    make export      export/deployments/$(PROFILE).json + export/abis/*.json"
+	@echo "    make export      export/deployments/$(PROFILE).json + export/abis/*.json (needs the running node for feeTo)"
 	@echo "    make verify      cast assertions over every exported address -> export/VERIFIED.md"
 	@echo ""
 	@echo "  make stop          stop the anvil this repo started"

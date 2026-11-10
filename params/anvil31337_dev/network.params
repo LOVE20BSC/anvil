@@ -13,8 +13,9 @@
 # is exported for every forge/cast call. It is deliberately not a file key: overriding the port with
 # `make bootstrap PORT=8555` must move the RPC endpoint with it, and a second key could disagree.
 #
-# `--block-time 1` means one block per second even when idle, so a 100-block phase is ~1m40s of wall
-# clock. PHASE_ORIGIN_BLOCKS / PHASE_ORIGIN_PHASE_BLOCKS in core.params are chosen against this.
+# `--block-time 1` means one block per second even when idle, so a 120-block phase is ~2 minutes of
+# wall clock (120 blocks x 1 s), matching PHASE_TARGET_SECONDS=120. PHASE_ORIGIN_BLOCKS /
+# PHASE_ORIGIN_PHASE_BLOCKS in core.params are chosen against this.
 CHAIN_ID=31337
 ANVIL_HOST=127.0.0.1
 ANVIL_PORT=8545

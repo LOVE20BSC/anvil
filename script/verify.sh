@@ -68,6 +68,18 @@ code_size() {
     echo $(( (${#code} - 2) / 2 ))
 }
 json_addr() { python3 -c "import json;print(json.load(open('$JSON'))['addresses']['$1'])"; }
+# json_path <key>... -> the value at that path in the export, one JSON token per line.
+json_path() {
+    python3 - "$JSON" "$@" <<'PY'
+import json
+import sys
+
+node = json.load(open(sys.argv[1]))
+for key in sys.argv[2:]:
+    node = node[int(key)] if isinstance(node, list) else node[key]
+print(json.dumps(node) if isinstance(node, (dict, list)) else node)
+PY
+}
 
 [ -f "$JSON" ] || { echo "missing $JSON - run 'make export' first" >&2; exit 1; }
 
@@ -146,6 +158,7 @@ check "UniswapV2Pair has WETH as $pair_side" "$WETH" "$( [ "$pair_token0" = "$WE
 check "LOVE20Token.MINTER()" "$MINT" "$(call "$TOKEN" 'MINTER()(address)')"
 check "LOVE20Token.PARENT_TOKEN_ADDRESS()" "$WETH" "$(call "$TOKEN" 'PARENT_TOKEN_ADDRESS()(address)')"
 check "LOVE20Token.symbol()" "$TOKEN_SYMBOL" "$(call "$TOKEN" 'symbol()(string)' | tr -d '\"')"
+check "LOVE20Token.name()" "$TOKEN_NAME" "$(call "$TOKEN" 'name()(string)' | tr -d '\"')"
 check "LOVE20Token.MAX_SUPPLY()" "$MAX_SUPPLY" "$(call "$TOKEN" 'MAX_SUPPLY()(uint256)')"
 check "Launch.FIRST_TOKEN_ADDRESS()" "$TOKEN" "$(call "$LAUNCH" 'FIRST_TOKEN_ADDRESS()(address)')"
 check "Launch.MINT_ADDRESS()" "$MINT" "$(call "$LAUNCH" 'MINT_ADDRESS()(address)')"
@@ -177,6 +190,31 @@ check_gt "Phase.currentPhase()" "0" "$current_phase"
 check "Phase.ORIGIN_PHASE_BLOCKS()" "$PHASE_ORIGIN_PHASE_BLOCKS" "$(call "$PHASE" 'ORIGIN_PHASE_BLOCKS()(uint256)')"
 check "Phase.TARGET_SECONDS()" "$PHASE_TARGET_SECONDS" "$(call "$PHASE" 'TARGET_SECONDS()(uint256)')"
 check "GroupChat.currentRound()" "$current_phase" "$(call "$GROUP_CHAT" 'currentRound()(uint256)')"
+
+# ------------------------------------------------------------------------------------------------
+# 4b. exported metadata is data the frontend trusts: it must describe THIS chain
+# ------------------------------------------------------------------------------------------------
+exported_deployer="$(json_path deployer)"
+check "export.deployer == params deploy account" \
+    "$(cast wallet address --mnemonic "$SEED_MNEMONIC" --mnemonic-index "$DEPLOY_ACCOUNT_INDEX")" \
+    "$exported_deployer"
+check_gt "exported deployer ETH balance" "0" "$(cast balance "$exported_deployer" --rpc-url "$RPC_URL")"
+
+check "export.params.tokenName" "$(call "$TOKEN" 'name()(string)' | tr -d '\"')" "$(json_path params tokenName)"
+check "export.params.tokenSymbol" "$(call "$TOKEN" 'symbol()(string)' | tr -d '\"')" "$(json_path params tokenSymbol)"
+check "export.params.phaseOriginBlocks" "$(call "$PHASE" 'ORIGIN_BLOCKS()(uint256)')" \
+    "$(json_path params phaseOriginBlocks)"
+check "export.params.phaseOriginPhaseBlocks" "$(call "$PHASE" 'ORIGIN_PHASE_BLOCKS()(uint256)')" \
+    "$(json_path params phaseOriginPhaseBlocks)"
+check "export.params.phaseTargetSeconds" "$(call "$PHASE" 'TARGET_SECONDS()(uint256)')" \
+    "$(json_path params phaseTargetSeconds)"
+check "export.params.seedAccountCount" "$SEED_ACCOUNT_COUNT" "$(json_path params seedAccountCount)"
+check "export.params.seedMemberCount" "$SEED_MEMBER_COUNT" "$(json_path params seedMemberCount)"
+check "export.params.groupActionSplits" \
+    "$(python3 -c 'import json,os; raw=os.environ.get("GROUP_ACTION_SPLITS",""); print(json.dumps(raw.split(",") if raw else []))')" \
+    "$(json_path params groupActionSplits)"
+check "export.uniswapV2.factory" "$FACTORY" "$(json_path uniswapV2 factory)"
+check "export.uniswapV2.feeTo" "$(call "$FACTORY" 'feeTo()(address)')" "$(json_path uniswapV2 feeTo)"
 
 # ------------------------------------------------------------------------------------------------
 # 5. seeded state: identities, balances, liquidity, airdrop

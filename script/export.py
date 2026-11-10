@@ -1,18 +1,26 @@
 #!/usr/bin/env python3
 """Build the frontend-facing export from a finished deployment.
 
-Inputs (all produced by script/local.sh):
+Inputs:
+    params/<profile>/*.params                     the authoritative token/phase/seed/split values
     export/deployments/<profile>.addresses.json   flat {UPPER_SNAKE -> 0x...} written by DeployLocal
     export/libraries.json                         the four CREATE'd action libraries
-    broadcast/DeployLocal.s.sol/31337/runLocal-latest.json     per-tx block numbers
+    broadcast/DeployLocal.s.sol/31337/runLocal-latest.json     deployer + per-tx block numbers
     broadcast/DeployLibraries.s.sol/31337/runLibraries-latest.json
     fixtures/airdrop/<profile>.json               merkle root / total share / provenance
+    the running node (`RPC_URL`, or the profile endpoint from network.params) for factory.feeTo()
 
 Outputs:
     export/deployments/<profile>.json   one file with chainId, deploy block, every contract address
                                         + the block it was deployed in + the airdrop/univ2 metadata
     export/abis/<Contract>.json         the `abi` array only, for the contracts the frontend calls
     export/airdrop/<profile>.json       copy of the snapshot so the frontend never reads fixtures/
+
+The metadata is data, not an echo of whatever environment happened to be set: the profile's params
+files are parsed here, the deployer is taken from the deploy receipts, and feeTo() is called on the
+factory. Missing inputs fail loudly instead of writing ""/0 placeholders that a frontend would
+silently consume. This also means `python3 script/export.py` is self-contained for a valid profile
+(only `RPC_URL` needs to be exported when the chain is not on the profile's default endpoint).
 
 ABI provenance: the sibling repositories' own build output (`<repo>/out/<File>.sol/<Contract>.json`,
 top-level `abi`). Those directories are READ-ONLY inputs; this script never builds in them. If one is
@@ -23,11 +31,20 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+
+ZERO_ADDRESS = "0x0000000000000000000000000000000000000000"
+
+# The same order as load_params() in script/local.sh. Later files do not override keys from earlier
+# ones in practice (every key is unique), but the order is kept identical so a future shared key
+# behaves the same way here as it does for the deploy scripts.
+PARAM_FILES = ("network", "accounts", "dex", "multicall3", "airdrop", "core", "action", "group-chat", "seed")
 
 # ------------------------------------------------------------------------------------------------
 # contract name -> the org-convention address key it is exported under
@@ -131,6 +148,131 @@ def read_json(path: Path):
         return None
 
 
+def run_cast(*args: str) -> str:
+    """Run `cast` and return stdout; fail with the tool's own stderr if it doesn't exit 0."""
+    try:
+        result = subprocess.run(["cast", *args], capture_output=True, text=True)
+    except FileNotFoundError:
+        fail("cast not found on PATH - Foundry is required for the on-chain metadata")
+    if result.returncode != 0:
+        fail(f"cast {' '.join(args)} failed: {result.stderr.strip() or result.stdout.strip()}")
+    return result.stdout
+
+
+def checksum_address(address: str) -> str:
+    """EIP-55 checksum via `cast` (the address book is consumed by a JS frontend)."""
+    value = run_cast("to-check-sum-address", address).strip()
+    if not re.fullmatch(r"0x[0-9a-fA-F]{40}", value):
+        fail(f"cast to-check-sum-address returned an unexpected value: {value!r}")
+    return value
+
+
+def cast_call_address(rpc_url: str, to: str, signature: str) -> str:
+    """Call a view function returning one address and return it checksummed."""
+    value = run_cast("call", to, signature, "--rpc-url", rpc_url).strip().splitlines()
+    value = value[0].strip() if value else ""
+    if not re.fullmatch(r"0x[0-9a-fA-F]{40}", value):
+        fail(f"{to}.{signature} returned an unexpected value: {value!r}")
+    return checksum_address(value)
+
+
+def expand_params_value(value: str) -> str:
+    """Mirror params_expand_value() in script/lib/params.sh (lexical 1e18 / 1_000 expansion).
+
+    Kept identical on purpose: the deploy scripts consume the shell loader's expansion and this
+    script consumes the same files, so `1e17,4e17,7e17` must become the same decimal strings in
+    both. Anything that does not match the two numeric forms is returned unchanged.
+    """
+    items = []
+    for raw in value.split(","):
+        item = raw.strip()
+        match = re.fullmatch(r"([0-9][0-9_]*)[eE]([0-9]+)", item)
+        if match:
+            item = match.group(1).replace("_", "") + "0" * int(match.group(2))
+        elif re.fullmatch(r"[0-9][0-9_]*", item):
+            item = item.replace("_", "")
+        items.append(item)
+    return ",".join(items)
+
+
+def parse_params_file(path: Path) -> dict[str, str]:
+    """Parse one .params file with the lexical rules documented in script/lib/params.sh."""
+    values: dict[str, str] = {}
+    for raw_line in path.read_text().splitlines():
+        line = raw_line.lstrip()
+        if not line or line.startswith("#"):
+            continue
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+            fail(f"invalid key in {path}: {key}")
+        if value.startswith(('"', "'")):
+            # A whole-quoted value keeps its content verbatim (so it may contain '#').
+            value = value[1:-1]
+        else:
+            # Remove an unquoted ` # comment` suffix, matching the shell loader.
+            value = re.sub(r"[ \t]+#.*$", "", value).rstrip()
+        values[key] = expand_params_value(value)
+    return values
+
+
+def load_params(profile: str) -> dict[str, str]:
+    params: dict[str, str] = {}
+    for stem in PARAM_FILES:
+        path = ROOT / "params" / profile / f"{stem}.params"
+        if not path.is_file():
+            fail(f"missing params file: {path}")
+        params.update(parse_params_file(path))
+    return params
+
+
+def require_param(params: dict[str, str], key: str) -> str:
+    value = params.get(key, "")
+    if value == "":
+        fail(f"params/{os.environ.get('PROFILE', 'anvil31337_dev')}/*.params does not define {key}")
+    return value
+
+
+def param_uint(params: dict[str, str], key: str) -> int:
+    raw = require_param(params, key)
+    try:
+        value = int(raw)
+    except ValueError:
+        fail(f"{key} is not a decimal integer: {raw!r}")
+    if value < 0:
+        fail(f"{key} is negative: {raw!r}")
+    return value
+
+
+def canonical_rpc_url(params: dict[str, str]) -> str:
+    """The profile's own endpoint. Deliberately not the PORT override: it is what a fresh
+    `make bootstrap` serves, so the committed export stays reproducible off this machine."""
+    return f"http://{require_param(params, 'ANVIL_HOST')}:{require_param(params, 'ANVIL_PORT')}"
+
+
+def deployer_from_broadcast(path: Path) -> str:
+    """The actual sender of the deployment transactions, from forge's broadcast receipts.
+
+    `DEPLOYER_ADDRESS` is derived from the mnemonic by local.sh; the broadcast is the chain-visible
+    record and therefore the authority for what the frontend should call the deployer. When both
+    are present they must agree, so a mnemonic/index change cannot silently mislabel an export.
+    """
+    data = read_json(path)
+    if not data:
+        fail(f"missing deploy broadcast {path} - run `make deploy` first")
+    senders = {str(r.get("from", "")).lower() for r in data.get("receipts", []) if r.get("from")}
+    senders.discard("")
+    if len(senders) != 1:
+        fail(f"{path} has {len(senders)} transaction senders, expected exactly one deployer")
+    sender = senders.pop()
+    expected = os.environ.get("DEPLOYER_ADDRESS", "")
+    if expected and expected.lower() != sender:
+        fail(f"broadcast sender {sender} disagrees with DEPLOYER_ADDRESS {expected}")
+    return checksum_address(sender)
+
+
 def broadcast_blocks(path: Path) -> dict[str, int]:
     """address(lowercase) -> block number, from one forge broadcast file."""
     data = read_json(path)
@@ -179,10 +321,10 @@ def load_abi(name: str, path: Path, env_var: str) -> list:
 
 def main() -> int:
     profile = os.environ.get("PROFILE") or "anvil31337_dev"
+    params = load_params(profile)
     deployments_dir = ROOT / "export" / "deployments"
     abis_dir = ROOT / "export" / "abis"
-    snapshot_path = ROOT / os.environ.get("AIRDROP_SNAPSHOT_FILE", f"fixtures/airdrop/{profile}.json")
-    include_seed = os.environ.get("SEED_ACCOUNT_COUNT")
+    snapshot_path = ROOT / (params.get("AIRDROP_SNAPSHOT_FILE") or f"fixtures/airdrop/{profile}.json")
 
     addresses_path = deployments_dir / f"{profile}.addresses.json"
     addresses = read_json(addresses_path)
@@ -203,8 +345,9 @@ def main() -> int:
     if multicall3_info:
         blocks[multicall3_info["address"].lower()] = int(multicall3_info["blockNumber"])
 
+    deploy_broadcast = ROOT / "broadcast" / "DeployLocal.s.sol" / str(chain_id) / "runLocal-latest.json"
     blocks.update(broadcast_blocks(ROOT / "broadcast" / "DeployLibraries.s.sol" / str(chain_id) / "runLibraries-latest.json"))
-    deploy_blocks = broadcast_blocks(ROOT / "broadcast" / "DeployLocal.s.sol" / str(chain_id) / "runLocal-latest.json")
+    deploy_blocks = broadcast_blocks(deploy_broadcast)
     blocks.update(deploy_blocks)
     deploy_block = max(deploy_blocks.values()) if deploy_blocks else 0
 
@@ -214,6 +357,31 @@ def main() -> int:
         if name not in libraries:
             fail(f"missing deployed library {name} in export/libraries.json")
         flat[key] = libraries[name]
+
+    # ---- live-chain metadata: read the value, never assume it ----
+    # RPC_URL is set by script/local.sh and follows a PORT override; the committed rpcUrl stays the
+    # profile's canonical endpoint (see canonical_rpc_url). feeTo() is what the chain actually says:
+    # the deployment passes feeToSetter = 0 to lock the protocol fee off, so a non-zero feeTo means
+    # the chain does not match that intent and the export must show it (plus a warning) instead of
+    # copying the factory address into the field.
+    chain_rpc_url = os.environ.get("RPC_URL") or canonical_rpc_url(params)
+    factory = flat["UNISWAP_V2_FACTORY_ADDRESS"]
+    fee_to = cast_call_address(chain_rpc_url, factory, "feeTo()(address)")
+    fee_to_setter = cast_call_address(chain_rpc_url, factory, "feeToSetter()(address)")
+    if fee_to != ZERO_ADDRESS:
+        print(
+            f"warning: UniswapV2Factory.feeTo() is {fee_to}, not the zero address the deployment "
+            f"locks in; exporting the on-chain value as-is",
+            file=sys.stderr,
+        )
+    if fee_to_setter != ZERO_ADDRESS:
+        print(
+            f"warning: UniswapV2Factory.feeToSetter() is {fee_to_setter}; the profile's "
+            f"FACTORY_FEE_TO_SETTER expects address(0) (protocol fee permanently off)",
+            file=sys.stderr,
+        )
+
+    deployer = deployer_from_broadcast(deploy_broadcast)
 
     # ---- contracts: contract name -> {address, blockNumber, group} ----
     contracts = {}
@@ -239,25 +407,33 @@ def main() -> int:
     contracts["LOVE20Token"]["blockNumber"] = contracts["Launch"]["blockNumber"]
     contracts["UniswapV2Pair"]["blockNumber"] = contracts["Launch"]["blockNumber"]
 
-    def env_uint(name: str, default: int = 0) -> int:
-        raw = os.environ.get(name, "")
-        return int(raw) if raw else default
+    # ---- params: from params/<profile>/*.params, not from ambient environment variables ----
+    splits = [item for item in require_param(params, "GROUP_ACTION_SPLITS").split(",") if item]
+    for split in splits:
+        # params_expand_value has already turned 1e17 into decimal; reject anything else so a typo
+        # cannot become a string the frontend must interpret.
+        if not re.fullmatch(r"[0-9]+", split):
+            fail(f"GROUP_ACTION_SPLITS contains a non-decimal entry: {split!r}")
+    token_name = require_param(params, "TOKEN_NAME")
+    token_symbol = require_param(params, "TOKEN_SYMBOL")
 
     deployment = {
         "network": profile,
         "chainId": chain_id,
-        "rpcUrl": os.environ.get("RPC_URL", ""),
-        "deployer": os.environ.get("DEPLOYER_ADDRESS", ""),
+        "rpcUrl": canonical_rpc_url(params),
+        "deployer": deployer,
         "deployBlock": deploy_block,
         "contracts": contracts,
         "addresses": flat,
         "libraries": {name: libraries[name] for name in LIBRARIES if name in libraries},
         "uniswapV2": {
-            "factory": flat["UNISWAP_V2_FACTORY_ADDRESS"],
+            "factory": factory,
             "router02": flat["UNISWAP_V2_ROUTER02_ADDRESS"],
             "weth": flat["WETH_ADDRESS"],
             "pair": flat["UNISWAP_V2_PAIR_ADDRESS"],
-            "feeTo": flat["UNISWAP_V2_FACTORY_ADDRESS"],  # feeTo() is address(0) by construction
+            # Queried above from factory.feeTo(); the deployment's feeToSetter = 0 lock is what
+            # makes this the zero address, not an assumption baked into this script.
+            "feeTo": fee_to,
             "pairInitCodeHash": "0x96e8ac4277198ff8b6f785478aa9a39f403cb768dd02cbee326c3e7da348845f",
         },
         "airdrop": {
@@ -272,14 +448,14 @@ def main() -> int:
             "snapshotFile": f"export/airdrop/{profile}.json",
         },
         "params": {
-            "tokenName": os.environ.get("TOKEN_NAME", ""),
-            "tokenSymbol": os.environ.get("TOKEN_SYMBOL", ""),
-            "phaseOriginBlocks": env_uint("PHASE_ORIGIN_BLOCKS"),
-            "phaseOriginPhaseBlocks": env_uint("PHASE_ORIGIN_PHASE_BLOCKS"),
-            "phaseTargetSeconds": env_uint("PHASE_TARGET_SECONDS"),
-            "groupActionSplits": [x for x in os.environ.get("GROUP_ACTION_SPLITS", "").split(",") if x],
-            "seedAccountCount": env_uint("SEED_ACCOUNT_COUNT") if include_seed else 0,
-            "seedMemberCount": env_uint("SEED_MEMBER_COUNT") if include_seed else 0,
+            "tokenName": token_name,
+            "tokenSymbol": token_symbol,
+            "phaseOriginBlocks": param_uint(params, "PHASE_ORIGIN_BLOCKS"),
+            "phaseOriginPhaseBlocks": param_uint(params, "PHASE_ORIGIN_PHASE_BLOCKS"),
+            "phaseTargetSeconds": param_uint(params, "PHASE_TARGET_SECONDS"),
+            "groupActionSplits": splits,
+            "seedAccountCount": param_uint(params, "SEED_ACCOUNT_COUNT"),
+            "seedMemberCount": param_uint(params, "SEED_MEMBER_COUNT"),
         },
     }
 
