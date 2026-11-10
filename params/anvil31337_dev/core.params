@@ -15,7 +15,7 @@
 # enough to click through the frontend and long enough that the whole bootstrap stays inside phase 1.
 
 # --- root token -----------------------------------------------------------------------------
-TOKEN_NAME=TestLOVE20@WETH
+TOKEN_NAME=TestLOVE20@TestWETH
 TOKEN_SYMBOL=TestLOVE20
 LAUNCH_AMOUNT=1e27
 MAX_SUPPLY=1e28

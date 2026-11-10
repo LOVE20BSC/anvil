@@ -198,13 +198,13 @@ export/
   "chainId": 31337,
   "rpcUrl": "http://127.0.0.1:8545",
   "deployer": "0xf39Fd…2266",
-  "deployBlock": 30,
-  "contracts": { "Launch": { "address": "0x…", "blockNumber": 29, "group": "core" }, … },
+  "deployBlock": 25,
+  "contracts": { "Launch": { "address": "0x…", "blockNumber": 24, "group": "core" }, … },
   "addresses": { "LAUNCH_ADDRESS": "0x…", … },      // same keys as params files
   "libraries": { "GroupActionJoin": "0x…", … },
   "uniswapV2": { "factory": "0x…", "router02": "0x…", "weth": "0x…", "pair": "0x…", "feeTo": "0x0000000000000000000000000000000000000000", "pairInitCodeHash": "0x96e8…" },
   "airdrop": { "address": "0x…", "merkleRoot": "0x…", "totalShare": "1000000000000000000", "snapshotFile": "…" },
-  "params": { "tokenName": "TestLOVE20@WETH", "phaseOriginPhaseBlocks": 120, "groupActionSplits": ["…"] }
+  "params": { "tokenName": "TestLOVE20@TestWETH", "phaseOriginPhaseBlocks": 120, "groupActionSplits": ["…"] }
 }
 ```
 
@@ -216,8 +216,8 @@ live node. A non-zero `feeTo` is exported as-is with a warning; the deployment's
 `feeToSetter = address(0)` lock is what makes it zero on this profile, and `make verify` asserts both
 the chain value and the exported value. Missing inputs fail the export instead of writing
 `""`/`0` placeholders. `rpcUrl` stays the profile's canonical endpoint from `network.params`
-(`http://127.0.0.1:8545`, what a fresh `make bootstrap` serves) even when the verification run uses
-`PORT=8555`.
+(`http://127.0.0.1:8545`, what a fresh `make bootstrap` serves) even when a one-off `PORT=`
+override starts the chain elsewhere.
 
 ABIs exported: `MemberNFT`, `LOVE20Token`, `Launch`, `Stake`, `Submit`, `Vote`, `Mint`, `Phase`,
 `ActionTarget`, `LpExecutor`, `GroupActionExecutor`, `GroupServiceExecutor`, `GroupChat`, `Airdrop`,
@@ -345,7 +345,7 @@ Headline values from the verified run:
 |---|---|
 | chain id | `31337` |
 | code present | all 34 exported addresses |
-| `Phase.currentPhase()` | `3` on the committed run (`1` right after a fresh bootstrap; the chain mines every second) |
+| `Phase.currentPhase()` | `1` on the committed run (the chain mines every second, so it advances afterwards) |
 | `Phase.ORIGIN_PHASE_BLOCKS()` | `120` (= 2 min per phase at `--block-time 1`) |
 | `MemberNFT.totalSupply()` | `5` |
 | `MemberNFT.balanceOf(seed[0])` | `1` |
@@ -367,12 +367,11 @@ The report also re-checks the wiring graph (`router.factory()`, `router.WETH()`,
 `uniswapV2.feeTo` agree with the chain (including a non-zero deployer ETH balance), so a stale or
 hand-edited export cannot pass `make verify`.
 
-> **Port note.** The committed verification ran with `PORT=8555` because an unrelated anvil process
-> (a different, older frontend checkout) had been holding `127.0.0.1:8545` for a day; this repo does
-> not kill processes it did not start. The chain flags are identical apart from the port, and
-> `make bootstrap` defaults to **8545** from `params/anvil31337_dev/network.params`. The committed
-> `export/deployments/anvil31337_dev.json` carries the profile's canonical `rpcUrl`
-> (`http://127.0.0.1:8545`); addresses and block numbers are those of the verified run and are
+> **Port note.** The committed verification ran on the canonical `127.0.0.1:8545` after the
+> unrelated anvil process (a different, older frontend checkout) that had been holding the port was
+> stopped. The chain flags are the profile defaults in `params/anvil31337_dev/network.params`. The
+> committed `export/deployments/anvil31337_dev.json` carries the profile's canonical `rpcUrl`
+> (`http://127.0.0.1:8545`); addresses and block numbers are those of this verified run and are
 > reproducible on a fresh chain.
 
 ---
@@ -427,13 +426,10 @@ or use `PORT=`).
 
 ## Blocked
 
-**Nothing is blocked.** Every step of the brief runs end to end. Two items are deliberate,
-documented deviations rather than blockers:
-
-* the **Airdrop is deployed before core** instead of last (§3 — `Launch`'s `distributor` is a
-  constructor argument and the genesis supply is minted inside it);
-* the **verification run used port 8555** instead of 8545 out of courtesy to an unrelated process
-  already bound to 8545 (§10). No input is missing; `make bootstrap` ships 8545 as the default.
+**Nothing is blocked.** Every step of the brief runs end to end. One item is a deliberate,
+documented deviation rather than a blocker: the **Airdrop is deployed before core** instead of last
+(§3 — `Launch`'s `distributor` is a constructor argument and the genesis supply is minted inside
+it). No input is missing; `make bootstrap` ships 8545 as the default.
 
 ---
 
