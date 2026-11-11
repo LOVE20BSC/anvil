@@ -1,4 +1,4 @@
-// Vendored from LOVE20TKM `burn`: src/interface/IAirdrop.sol @ b32bb821d2131c5aef09aa661f9681ddf1741fcf
+// Vendored from LOVE20TKM `burn`: src/interface/IAirdrop.sol @ 5f3b7338cd8d5330dc1614397b404bbdffefe1c2
 // Only the pragma was changed (0.8.17 -> 0.8.37) so it compiles with the rest of this project.
 //
 // SPDX-License-Identifier: MIT
@@ -30,6 +30,7 @@ interface IAirdrop {
     function totalShare() external view returns (uint256);
 
     function claimedShare(address token) external view returns (uint256);
+    function claimedAmount(address token, address account) external view returns (uint256);
     function remainingShare(address token) external view returns (uint256);
     function isClaimed(address token, address account) external view returns (bool);
 

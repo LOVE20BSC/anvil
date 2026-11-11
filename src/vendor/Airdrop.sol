@@ -1,6 +1,6 @@
 // Vendored verbatim from the LOVE20TKM `burn` repository:
 //   origin: /Users/BigPolarBear/Documents/github/LOVE20TKM/burn/src/Airdrop.sol
-//   commit: b32bb821d2131c5aef09aa661f9681ddf1741fcf (Tue Nov 10 15:41:30 2026 +0800)
+//   commit: 5f3b7338cd8d5330dc1614397b404bbdffefe1c2 (Wed Nov 11 22:34:21 2026 +0800)
 //   upstream path: src/Airdrop.sol (+ src/interface/IAirdrop.sol, vendored next to this file)
 //
 // This is the canonical share-based Merkle airdrop the protocol deploys on BSC. It is copied rather
@@ -40,6 +40,8 @@ contract Airdrop is IAirdrop, ReentrancyGuard {
     mapping(address => uint256) public override claimedShare;
     // token => source account => whether this token was successfully claimed
     mapping(address => mapping(address => bool)) private _claimed;
+    // token => source account => amount actually minted by a successful claim
+    mapping(address => mapping(address => uint256)) public override claimedAmount;
 
     constructor(
         uint256 sourceChainId_,
@@ -98,6 +100,7 @@ contract Airdrop is IAirdrop, ReentrancyGuard {
         if (amount == 0) revert NoClaimableAmount();
 
         _claimed[token][account] = true;
+        claimedAmount[token][account] = amount;
         claimedShare[token] += share;
         IERC20(token).safeTransfer(account, amount);
 
