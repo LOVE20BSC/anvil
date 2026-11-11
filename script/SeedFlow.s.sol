@@ -226,7 +226,7 @@ contract SeedFlow is Script {
 
         uint256 lpInStake = pair.balanceOf(addrs.stake);
         require(lpInStake != 0, "Stake holds no LP tokens");
-        (uint256 totalLiquidityShares,,,,,,) = IStake(addrs.stake).totalStake(addrs.token);
+        (uint256 totalLiquidityShares,,,,,,,) = IStake(addrs.stake).totalStake(addrs.token);
         require(totalLiquidityShares != 0, "Stake.totalLiquidityShares is zero");
 
         for (uint256 i = 0; i < params.memberCount; i++) {

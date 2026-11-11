@@ -241,7 +241,7 @@ r1="$(cast call "$PAIR" 'getReserves()(uint112,uint112,uint32)' --rpc-url "$RPC_
 check_gt "UniswapV2Pair reserve0" "0" "${r0:-0}"
 check_gt "UniswapV2Pair reserve1" "0" "${r1:-0}"
 check_gt "UniswapV2Pair LP held by Stake" "0" "$(call "$PAIR" 'balanceOf(address)(uint256)' "$STAKE")"
-stake_shares="$(call "$STAKE" 'totalStake(address)(uint256,uint256,uint256,uint256,uint256,uint256,uint256)' "$TOKEN" | head -1)"
+stake_shares="$(call "$STAKE" 'totalStake(address)(uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)' "$TOKEN" | head -1)"
 check_gt "Stake.totalLiquidityShares" "0" "$stake_shares"
 
 merkle_root="$(call "$AIRDROP" 'merkleRoot()(bytes32)')"
