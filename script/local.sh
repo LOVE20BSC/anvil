@@ -8,7 +8,8 @@
 #   preflight    tool + sibling + artifact checks, no chain interaction
 #   fixture      (re)generate fixtures/airdrop/anvil31337_dev.json
 #   anvil        start anvil with params/anvil31337_dev/network.params, or reuse a healthy one
-#   stop         stop the anvil started by this repo (pid file in .anvil/)
+#   stop         stop the anvil started by this repo (pid file in .anvil/, or .anvil/<port>/ for
+#                a non-default port; 8545 stays in the historical flat layout)
 #   fresh        assert deployer nonce 0 + no Multicall3 (bootstrap also requires block 0)
 #   multicall3   deploy Multicall3 at its canonical address from the upstream pre-signed tx
 #   libraries    deploy the four action libraries (link targets for the executors)
@@ -34,6 +35,12 @@ PARAMS_DIR="$ROOT/params/$PROFILE"
 OUT_DIR="$ROOT/export"
 DEPLOYMENTS_DIR="$OUT_DIR/deployments"
 ABIS_DIR="$OUT_DIR/abis"
+# Runtime state (pid file, logs) is per port. The default port 8545 is the developer's canonical
+# "human" chain and keeps the historical flat `.anvil/` layout, so an anvil that is already running
+# from an older checkout keeps its pid file working. Every other port gets its own `.anvil/<port>/`
+# namespace: `make stop PORT=8555` / `make clean PORT=8555` then only ever touch the 8555 chain, and
+# the frontend e2e suite can run its own bootstrap while the developer's 8545 chain keeps running.
+DEFAULT_ANVIL_PORT=8545
 ANVIL_DIR="$ROOT/.anvil"
 ANVIL_PID_FILE="$ANVIL_DIR/anvil.pid"
 ANVIL_LOG="$ANVIL_DIR/anvil.log"
@@ -62,6 +69,16 @@ load_params() {
 
     # Derived, deliberately not file keys (see network.params).
     export RPC_URL="http://${ANVIL_HOST}:${ANVIL_PORT}"
+    # Pick this port's runtime namespace (see DEFAULT_ANVIL_PORT at the top). Recomputed on every
+    # load_params call because ANVIL_PORT can come from the file or from a `PORT=`/`ANVIL_PORT=`
+    # override; 8545 keeps the flat `.anvil/` layout for backwards compatibility.
+    if [ "$ANVIL_PORT" = "$DEFAULT_ANVIL_PORT" ]; then
+        ANVIL_DIR="$ROOT/.anvil"
+    else
+        ANVIL_DIR="$ROOT/.anvil/$ANVIL_PORT"
+    fi
+    ANVIL_PID_FILE="$ANVIL_DIR/anvil.pid"
+    ANVIL_LOG="$ANVIL_DIR/anvil.log"
     export PROFILE
     export REPO_ROOT="$ROOT"
     export EXPORT_DIR="$OUT_DIR"
@@ -182,6 +199,17 @@ enable_interval_mining() {
     fi
 }
 
+# Suffix for the copy-paste recovery commands: empty on the default port, ` PORT=<port>` otherwise.
+# It keeps the hints correct for an automated chain on 8555 instead of telling the operator to stop
+# the developer's 8545 chain by mistake.
+port_arg() {
+    if [ "$ANVIL_PORT" = "$DEFAULT_ANVIL_PORT" ]; then
+        printf ''
+    else
+        printf ' PORT=%s' "$ANVIL_PORT"
+    fi
+}
+
 cmd_anvil() {
     load_params
     require_tools
@@ -195,7 +223,7 @@ cmd_anvil() {
         # failure that produced the unreproducible address book this guard exists to prevent.
         die "a chain is already running at ${RPC_URL}; bootstrap only deploys onto a fresh chain.
     Stop it and remove all chain/build state first:
-      make stop && make clean && make bootstrap"
+      make stop$(port_arg) && make clean$(port_arg) && make bootstrap$(port_arg)"
     fi
     if [ "$running_id" = "$CHAIN_ID" ]; then
         # Only a chain THIS repo started may be reused. Anything else on the same port belongs to
@@ -211,9 +239,9 @@ cmd_anvil() {
             ok "chain started by this repo is still running (pid $pid) - reusing it"
             return 0
         fi
-        die "something is already serving chain ${CHAIN_ID} at ${RPC_URL}, but it was not started by this repo (no live .anvil/anvil.pid).
+        die "something is already serving chain ${CHAIN_ID} at ${RPC_URL}, but it was not started by this repo (no live ${ANVIL_PID_FILE#"$ROOT"/}).
     Refusing to deploy onto an unknown chain. Either stop that process yourself, or pick another port:
-      make bootstrap PORT=8555"
+      make bootstrap PORT=<free port>"
     fi
     if [ -n "$running_id" ]; then
         die "${RPC_URL} answers with a different chain id (${running_id}); stop it or run with PORT=<free port>"
@@ -240,7 +268,7 @@ cmd_anvil() {
     local i
     for i in $(seq 1 50); do
         if [ "$(rpc_chain_id)" = "$CHAIN_ID" ]; then
-            ok "anvil up (pid $!, automine, log .anvil/anvil.log)"
+            ok "anvil up (pid $!, automine, log ${ANVIL_LOG#"$ROOT"/})"
             if [ "${BOOTSTRAP_ACTIVE:-0}" != "1" ]; then
                 enable_interval_mining
             fi
@@ -248,12 +276,12 @@ cmd_anvil() {
         fi
         sleep 0.2
     done
-    die "anvil did not become ready on $RPC_URL - see .anvil/anvil.log"
+    die "anvil did not become ready on $RPC_URL - see ${ANVIL_LOG#"$ROOT"/}"
 }
 
 cmd_stop() {
     load_params
-    step "stop anvil"
+    step "stop anvil (chain ${CHAIN_ID} on ${RPC_URL})"
     if [ -f "$ANVIL_PID_FILE" ]; then
         local pid _host _port
         read -r pid _host _port <"$ANVIL_PID_FILE" || true
@@ -264,7 +292,7 @@ cmd_stop() {
         fi
         rm -f "$ANVIL_PID_FILE"
     else
-        warn "no .anvil/anvil.pid - was the chain started by this repo?"
+        warn "no ${ANVIL_PID_FILE#"$ROOT"/} - was the chain started by this repo?"
     fi
 }
 
@@ -489,11 +517,22 @@ cmd_clean() {
     if [ -f "$ANVIL_PID_FILE" ]; then
         cmd_stop
     fi
-    step "clean"
+    step "clean (chain ${CHAIN_ID} on ${RPC_URL})"
     rm -rf "$ROOT/out" "$ROOT/cache" "$ROOT/broadcast"
     rm -rf "$DEPLOYMENTS_DIR" "$ABIS_DIR" "$OUT_DIR/libraries.json" "$OUT_DIR/VERIFIED.md"
-    rm -rf "$ANVIL_DIR"
-    ok "removed out/ cache/ broadcast/ .anvil/ and exported artifacts"
+    # Runtime state is per port (see DEFAULT_ANVIL_PORT): cleaning the default 8545 chain must not
+    # wipe `.anvil/8555/` (the frontend e2e chain's pid/log) and cleaning 8555 must not touch the
+    # developer's flat `.anvil/`. Exports/build output above are shared and are regenerated by the
+    # next bootstrap.
+    if [ "$ANVIL_DIR" = "$ROOT/.anvil" ]; then
+        if [ -d "$ANVIL_DIR" ]; then
+            find "$ANVIL_DIR" -maxdepth 1 -type f -delete
+        fi
+        ok "removed out/ cache/ broadcast/ .anvil runtime files and exported artifacts (other ports' .anvil/<port>/ kept)"
+    else
+        rm -rf "$ANVIL_DIR"
+        ok "removed out/ cache/ broadcast/ ${ANVIL_DIR#"$ROOT"/} and exported artifacts"
+    fi
 }
 
 # ------------------------------------------------------------------------------------------------

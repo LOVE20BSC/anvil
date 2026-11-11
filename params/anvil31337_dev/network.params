@@ -24,6 +24,11 @@
 CHAIN_ID=31337
 ANVIL_HOST=127.0.0.1
 ANVIL_PORT=8545
+# 8545 is the developer's canonical "human" chain: a browser wallet is connected to it, so
+# automated runs must never bootstrap, snapshot or revert it. Ports are parameterised so a second
+# chain can coexist: `make bootstrap PORT=8555` (the frontend e2e suite does this) moves ANVIL_PORT
+# and every derived RPC URL together, and keeps its pid file + logs in `.anvil/8555/` instead of
+# the flat `.anvil/` used by the default 8545 chain.
 ANVIL_BLOCK_TIME=1
 ANVIL_ACCOUNTS=20
 ANVIL_BALANCE=10000

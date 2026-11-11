@@ -5,8 +5,12 @@
 # chain plus the export the frontend consumes.
 #
 # Frequently used overrides (exported to the scripts, they win over params/anvil31337_dev/*.params):
-#   make bootstrap PORT=8555     # run the chain on another port (moves ANVIL_PORT and RPC_URL)
+#   make bootstrap PORT=8555     # run the chain on another port (moves ANVIL_PORT and RPC_URL).
+#                                # Runtime state then lives in .anvil/8555/ (pid + logs), so this
+#                                # chain and the default 8545 chain never share a pid file. The
+#                                # frontend e2e suite uses 8555 for exactly this reason.
 #   make bootstrap HOST=127.0.0.2
+#   PORT=8555 make stop | make clean | make anvil     # same port override for every target
 #   make deploy PROFILE=anvil31337_dev
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
@@ -43,10 +47,11 @@ help:
 	@echo "    make export      export/deployments/$(PROFILE).json + export/abis/*.json (needs the running node for feeTo)"
 	@echo "    make verify      cast assertions over every exported address -> export/VERIFIED.md"
 	@echo ""
-	@echo "  make stop          stop the anvil this repo started"
-	@echo "  make clean         stop this repo's anvil; remove out/ cache/ broadcast/ .anvil/ and exports"
+	@echo "  make stop          stop the anvil this repo started (default port; non-default .anvil/<port>/)"
+	@echo "  make clean         stop this repo's anvil; remove out/ cache/ broadcast/ exports and the"
+	@echo "                     selected port's runtime state (default 8545 keeps the flat .anvil/ layout)"
 	@echo ""
-	@echo "  make bootstrap PORT=8555    run on another port"
+	@echo "  make bootstrap PORT=8555    run on another port (e2e chain; runtime state .anvil/8555/)"
 
 bootstrap:
 	@$(LOCAL) bootstrap
