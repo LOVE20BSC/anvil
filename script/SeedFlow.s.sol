@@ -170,10 +170,9 @@ contract SeedFlow is Script {
         (uint256 tokenId, uint256 actualCost) = IMemberNFT(addrs.memberNFT).mint(name);
         vm.stopBroadcast();
 
-        // The protocol prefixes "Test" onto the name when the token symbol starts with "Test"; that
-        // never shortens it, and any name >= BYTES_THRESHOLD bytes has the same cost, so the approved
-        // amount is exact. If that assumption ever breaks, the mint reverts on allowance - and this
-        // require makes the reason obvious when it does not.
+        // Names are stored verbatim (core@72a1604 removed the protocol's Test prefix), and every
+        // seeded name is >= BYTES_THRESHOLD bytes, so the approved amount is exact. If that ever
+        // breaks, the mint reverts on allowance - and this require makes the reason obvious.
         require(actualCost == cost, "mint cost differed from calculateMintCost");
 
         console2.log("  member:", entry.account);

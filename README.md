@@ -240,7 +240,7 @@ transactions. No `deal`, no `anvil_setStorageAt`, no state forgery anywhere in t
 |---|---|---|
 | ETH | account #0 tops every seeded account up to `SEED_ETH_PER_ACCOUNT` (100 ETH) | 5 accounts ≥ 100 ETH (anvil already funds them, so usually a no-op) |
 | Airdrop claim | each of the first `SEED_MEMBER_COUNT` (5) accounts calls `claim(token, self, share, proof)` with its own key | 5 × 1e26 tokens claimed; accounts 5–9 left unclaimed for the **claim UI** |
-| MemberNFT | each of the 5 claims, then `approve` + `mint("dev-member-<i>")` (protocol prefixes `Test`) | 5 identities, ids 1–5, 9e20 burned per mint |
+| MemberNFT | each of the 5 claims, then `approve` + `mint("Testdev-member-<i>")` (the name is stored verbatim) | 5 identities, ids 1–5, 9e20 burned per mint |
 | Liquidity + governance | member 0 wraps 100 ETH → `WETH.deposit`, approves `Stake`, calls `Stake.stakeLiquidity(token, 2e23, 1e20, 5e16, 1, 1)` | pair reserves **200 000 token / 100 WETH** (price 2000 token/ETH), 4.472135954999579391818e21 LP minted to `Stake`, equal `govVotes` |
 
 **Liquidity goes through `Stake.stakeLiquidity`, not `Router.addLiquidity`.** `Launch._ensurePair()`

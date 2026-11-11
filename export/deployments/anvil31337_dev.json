@@ -50,107 +50,107 @@
   "contracts": {
     "ActionTarget": {
       "address": "0x0B306BF915C4d645ff596e518fAf3F9669b97016",
-      "blockNumber": 24,
+      "blockNumber": 32,
       "group": "action"
     },
     "AdminBanSource": {
       "address": "0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1",
-      "blockNumber": 24,
+      "blockNumber": 32,
       "group": "group-chat"
     },
     "Airdrop": {
       "address": "0xa513E6E4b8f2a923D98304ec87F64353C4D5C853",
-      "blockNumber": 25,
+      "blockNumber": 32,
       "group": "core"
     },
     "GovVotedBanSource": {
       "address": "0x322813Fd9A801c5507c9de605d63CEA4f2CE6c44",
-      "blockNumber": 24,
+      "blockNumber": 32,
       "group": "group-chat"
     },
     "GroupActionExecutor": {
       "address": "0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE",
-      "blockNumber": 24,
+      "blockNumber": 32,
       "group": "action"
     },
     "GroupActionJoin": {
       "address": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
-      "blockNumber": 11,
+      "blockNumber": 15,
       "group": "action-library"
     },
     "GroupActionManager": {
       "address": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
-      "blockNumber": 11,
+      "blockNumber": 15,
       "group": "action-library"
     },
     "GroupActionVerify": {
       "address": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
-      "blockNumber": 11,
+      "blockNumber": 15,
       "group": "action-library"
     },
     "GroupAdmin": {
       "address": "0x3Aa5ebB10DC797CAC828524e59A333d0A371443c",
-      "blockNumber": 24,
+      "blockNumber": 32,
       "group": "group-chat"
     },
     "GroupChat": {
       "address": "0xc6e7DF5E7b4f2A278906862b61205850344D4e7d",
-      "blockNumber": 24,
+      "blockNumber": 32,
       "group": "group-chat"
     },
     "GroupChatBanList": {
       "address": "0x59b670e9fA9D0A427751Af201D676719a970857b",
-      "blockNumber": 24,
+      "blockNumber": 32,
       "group": "group-chat"
     },
     "GroupJoinScopeSource": {
       "address": "0x7a2088a1bFc9d81c55368AE168C2C02570cB814F",
-      "blockNumber": 24,
+      "blockNumber": 32,
       "group": "group-chat"
     },
     "GroupMember": {
       "address": "0xa85233C63b9Ee964Add6F2cffe00Fd84eb32338f",
-      "blockNumber": 24,
+      "blockNumber": 32,
       "group": "group-chat"
     },
     "GroupMemberScope": {
       "address": "0x4A679253410272dd5232B3Ff7cF5dbB88f295319",
-      "blockNumber": 24,
+      "blockNumber": 32,
       "group": "group-chat"
     },
     "GroupRecipients": {
       "address": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
-      "blockNumber": 11,
+      "blockNumber": 15,
       "group": "action-library"
     },
     "GroupServiceExecutor": {
       "address": "0x68B1D87F95878fE05B998F19b66F4baba5De1aed",
-      "blockNumber": 24,
+      "blockNumber": 32,
       "group": "action"
     },
     "LOVE20Token": {
       "address": "0x8aCd85898458400f7Db866d53FCFF6f0D49741FF",
-      "blockNumber": 24,
+      "blockNumber": 32,
       "group": "core"
     },
     "Launch": {
       "address": "0x8A791620dd6260079BF849Dc5567aDC3F2FdC318",
-      "blockNumber": 24,
+      "blockNumber": 32,
       "group": "core"
     },
     "LpExecutor": {
       "address": "0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1",
-      "blockNumber": 24,
+      "blockNumber": 32,
       "group": "action"
     },
     "MemberNFT": {
       "address": "0x610178dA211FEF7D417bC0e6FeD39F05609AD788",
-      "blockNumber": 24,
+      "blockNumber": 32,
       "group": "core"
     },
     "Mint": {
       "address": "0x9A676e781A523b5d0C0e43731313A708CB607508",
-      "blockNumber": 24,
+      "blockNumber": 32,
       "group": "core"
     },
     "Multicall3": {
@@ -160,66 +160,66 @@
     },
     "Phase": {
       "address": "0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6",
-      "blockNumber": 24,
+      "blockNumber": 32,
       "group": "core"
     },
     "Stake": {
       "address": "0xB7f8BC63BbcaD18155201308C8f3540b07f84F5e",
-      "blockNumber": 24,
+      "blockNumber": 32,
       "group": "core"
     },
     "Submit": {
       "address": "0xA51c1fc2f0D1a1b8494Ed1FE312d7C3a78Ed91C0",
-      "blockNumber": 24,
+      "blockNumber": 32,
       "group": "core"
     },
     "TokenActionGovManager": {
       "address": "0x67d269191c92Caf3cD7723F116c85e6E9bf55933",
-      "blockNumber": 24,
+      "blockNumber": 32,
       "group": "group-chat"
     },
     "TokenActionMainManager": {
       "address": "0xE6E340D132b5f46d1e472DebcD681B2aBc16e57E",
-      "blockNumber": 24,
+      "blockNumber": 32,
       "group": "group-chat"
     },
     "TokenGovManager": {
       "address": "0xc5a5C42992dECbae36851359345FE25997F5C42d",
-      "blockNumber": 24,
+      "blockNumber": 32,
       "group": "group-chat"
     },
     "TokenMainManager": {
       "address": "0x09635F643e140090A9A8Dcd712eD6285858ceBef",
-      "blockNumber": 24,
+      "blockNumber": 32,
       "group": "group-chat"
     },
     "UniswapV2Factory": {
       "address": "0x5FC8d32690cc91D4c39d9d3abcBD16989F875707",
-      "blockNumber": 24,
+      "blockNumber": 32,
       "group": "uniswap"
     },
     "UniswapV2Pair": {
       "address": "0x3FC12a5abAe69C8Eee58C37cEDC266751507620D",
-      "blockNumber": 24,
+      "blockNumber": 32,
       "group": "uniswap"
     },
     "UniswapV2Router02": {
       "address": "0x0165878A594ca255338adfa4d48449f69242Eb8F",
-      "blockNumber": 24,
+      "blockNumber": 32,
       "group": "uniswap"
     },
     "Vote": {
       "address": "0x0DCd1Bf9A1b36cE34237eEaFef220932846BCD82",
-      "blockNumber": 24,
+      "blockNumber": 32,
       "group": "core"
     },
     "WETH9": {
       "address": "0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9",
-      "blockNumber": 24,
+      "blockNumber": 32,
       "group": "uniswap"
     }
   },
-  "deployBlock": 25,
+  "deployBlock": 32,
   "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
   "libraries": {
     "GroupActionJoin": "0x5FbDB2315678afecb367f032d93F642f64180aa3",

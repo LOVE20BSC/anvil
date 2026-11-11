@@ -13,7 +13,7 @@
 # 2e23 community tokens + 100e18 WETH is a ~2000 token/ETH initial price, deep enough that the
 # frontend's quotes and slippage previews do not move on every click.
 SEED_MEMBER_COUNT=5
-SEED_MEMBER_NAME_PREFIX=dev-member-
+SEED_MEMBER_NAME_PREFIX=Testdev-member-
 SEED_LIQUIDITY_MEMBER_INDEX=0
 SEED_LIQUIDITY_TOKEN_AMOUNT=2e23
 SEED_LIQUIDITY_PARENT_TOKEN_AMOUNT=1e20
