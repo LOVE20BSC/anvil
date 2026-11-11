@@ -12,6 +12,13 @@ Chain: **chainId 31337**, `http://127.0.0.1:8545`, `--accounts 20 --block-time 1
 [`params/anvil31337_dev/network.params`](params/anvil31337_dev/network.params); bootstrap starts in
 automine mode and switches interval mining on after verify — see §2).
 
+Ports are parameterised (`PORT=…` / `ANVIL_PORT=…`) because a machine often runs more than one
+chain. **8545 is the default "human" chain** — a developer's browser wallet is connected to it, so
+automated runs must never bootstrap or revert it. The frontend e2e suite therefore runs a second,
+disposable chain on **8555**. Runtime state — pid file and logs — is per port: 8545 keeps the
+historical flat `.anvil/` layout, every other port gets `.anvil/<port>/`. `make stop PORT=8555` /
+`make clean PORT=8555` only ever touch 8555, and `make stop` / `make clean` only touch 8545.
+
 The four sibling repositories (`core/`, `action/`, `group-chat/`, `libs/`, `dex/`) are **read-only
 inputs**. Nothing in this repo writes into them. Their Solidity sources are compiled through the
 `.siblings/*` remappings, and the UniswapV2 **Factory/Router/Pair** creation bytecode is read out of
@@ -27,8 +34,10 @@ inputs**. Nothing in this repo writes into them. Their Solidity sources are comp
 # from this directory (requires ~/.foundry/bin on PATH)
 make stop && make clean && make bootstrap   # ≈45–50 s, always from a fresh chain
 make verify             # re-run only the checks
-make stop               # stop the anvil this repo started
-make clean              # stop this repo's anvil; remove out/ cache/ broadcast/ .anvil/ and exports
+make stop               # stop the 8545 anvil this repo started
+make clean              # stop the 8545 anvil; remove build/export artifacts and 8545 runtime state
+make bootstrap PORT=8555   # second chain next to 8545: own pid/log in .anvil/8555/
+make stop PORT=8555        # stop/clean only the 8555 chain
 ```
 
 **The address book is reproducible only from a fresh chain.** `make bootstrap` refuses to start if
@@ -38,10 +47,13 @@ DeployLibraries broadcast starts at nonce 0 and that DeployLocal continues immed
 Never make the chain match a committed address book by setting a nonce — addresses always follow the
 deployment.
 
-Other ports (the second anvil on a machine will collide otherwise):
+Other ports: anvil treats host/port as the chain's identity, and this repo derives every RPC URL
+from them. Because runtime state is namespaced per port, a second chain can run next to the
+developer's 8545 without either `make stop` killing the other:
 
 ```bash
 make bootstrap PORT=8555        # moves both the anvil process and every RPC URL
+make stop PORT=8555             # stops only the 8555 chain (pid file: .anvil/8555/anvil.pid)
 make bootstrap HOST=0.0.0.0     # binds all interfaces
 ```
 
@@ -60,7 +72,7 @@ Everything else (`core/out`, `action/out`, `group-chat/out`) is only needed for 
 | 1 | preflight | `make preflight` | toolchain + sibling + artifact + Multicall3-tx checksum checks, `.siblings/` symlinks |
 | 2 | airdrop fixture | `make fixture` | `fixtures/airdrop/anvil31337_dev.json` (10 accounts, proofs, merkle root) |
 | 3 | build | `make build` | `forge build` over this project + the sibling sources (read-only) |
-| 4 | anvil | `make anvil` | chain 31337 on 8545, automine; **bootstrap refuses to reuse any running chain** |
+| 4 | anvil | `make anvil` | chain 31337 on `ANVIL_PORT` (8545 by default), automine; runtime state in `.anvil/` (8545) or `.anvil/<port>/`; **bootstrap refuses to reuse any running chain** |
 | 5 | fresh guard | `make fresh` | deployer nonce 0 + no Multicall3 (bootstrap also requires block 0); fails loudly on a used chain |
 | 6 | Multicall3 | `make multicall3` | `0xcA11bde05977b3631167028862bE2a173976CA11` from the upstream pre-signed tx |
 | 7 | linked libraries | `make libraries` | the 4 action libraries (CREATE at deployer nonces 0..3, addresses to `export/libraries.json`) |
@@ -391,6 +403,15 @@ hand-edited export cannot pass `make verify`.
 > committed `export/deployments/anvil31337_dev.json` carries the profile's canonical `rpcUrl`
 > (`http://127.0.0.1:8545`); addresses and block numbers are those of this verified run and are
 > reproducible on a fresh chain.
+>
+> The frontend e2e suite bootstraps the same profile on `PORT=8555`. Because the exported `rpcUrl`
+> stays the profile's canonical endpoint (see §5), a clean 8555 bootstrap regenerates every export
+> file byte-identically, including all addresses and block numbers. `export/VERIFIED.md` is the one
+> file that changes: `script/verify.sh` records the endpoint it was run against (its `rpc` row and
+> the copy-paste `cast` examples then point at 8555), plus the wall-clock timestamp. After a 8555
+> bootstrap it is therefore restored to HEAD (`git checkout -- export/VERIFIED.md`): the committed
+> report must describe the canonical 8545 chain, not the disposable automated one. Commit it
+> deliberately when the verified values themselves change.
 
 ---
 
@@ -408,9 +429,12 @@ make multicall3 && make libraries && make deploy && make seed
 make export && make verify
 # then: cast rpc anvil_setIntervalMining 1 --rpc-url http://127.0.0.1:8545
 
-# a one-off chain on another port (only one chain at a time: the frontend has one RPC)
-make stop && make clean
+# a second chain next to the developer's 8545 (own pid/log in .anvil/<port>/, independent stop/clean)
 make bootstrap PORT=8556
+cast block-number --rpc-url http://127.0.0.1:8556
+make stop PORT=8556
+
+# the frontend e2e suite does exactly this on 8555: `pnpm e2e` bootstraps it once and reuses it
 
 # inspect
 cast call $PHASE 'currentPhase()(uint256)' --rpc-url http://127.0.0.1:8545
@@ -505,15 +529,16 @@ anvil/
 
 | symptom | cause / fix |
 |---|---|
-| `a chain is already running at http://127.0.0.1:8545; bootstrap only deploys onto a fresh chain` | bootstrap purposefully refuses to reuse a chain. Run `make stop && make clean && make bootstrap`. |
+| `a chain is already running at http://127.0.0.1:8545; bootstrap only deploys onto a fresh chain` | bootstrap purposefully refuses to reuse a chain. Run `make stop && make clean && make bootstrap` for the same port; add `PORT=<port>` when the chain was a non-default one. |
 | `refusing to deploy onto a used chain: block=…, deployer nonce=…` | your chain was not clean (usually a reused/old anvil). `make stop && make clean && make bootstrap`; never set a nonce by hand. |
 | `deployment did not start from nonce 0` from `make export` | the broadcast came from a used chain. Rebuild from scratch; the export is intentionally refused. |
-| `something is already serving chain 31337 at http://127.0.0.1:8545` | another process holds the port. Stop it yourself (this repo never kills foreign processes), or use `PORT=` for an explicitly separate chain. |
+| `something is already serving chain 31337 at http://127.0.0.1:8545` | another process holds the port. Stop it yourself (this repo never kills foreign processes), or use `PORT=` for an explicitly separate chain (runtime state then lives in `.anvil/<port>/`). |
 | `missing dex artifact: ../dex/build/...` | run `make -C ../dex build` yourself (this repo will not write into `dex/`). |
 | `failed to parse, too many arguments passed` | you are passing multiple `--libraries` values to the CLI; use `FOUNDRY_LIBRARIES` (already done by `script/local.sh`). |
 | `fixture entry is not claimable` from `make seed` | seed already ran on this deployment: `make deploy && make seed`. |
 | `vm.getCode: multiple matching artifacts found` | the `.siblings/` symlinks are missing, so foundry compiled a sibling file twice. `make preflight` recreates them; then `make clean`. |
-| verification reports `no code at …` | the chain was reset/restarted after `make deploy`. Re-run `make bootstrap`. |
+| verification reports `no code at …` | the chain was reset/restarted after `make deploy`. Re-run `make bootstrap` (add `PORT=` if it was a non-default chain). |
+| `no .anvil/8555/anvil.pid - was the chain started by this repo?` | the e2e chain's runtime record is missing. Check `lsof -nP -iTCP:8555`; if nothing listens, the frontend's `pnpm e2e` bootstraps a fresh chain. Never point this at 8545. |
 
 ## 15. Credits
 
