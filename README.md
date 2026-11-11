@@ -7,9 +7,10 @@ seeded, exported and verified**:
 make bootstrap
 ```
 
-Chain: **chainId 31337**, `http://127.0.0.1:8545`, `--block-time 1 --accounts 20 --gas-limit 60000000
---code-size-limit 100000 --base-fee 1000000000` (exactly the flags in
-[`params/anvil31337_dev/network.params`](params/anvil31337_dev/network.params)).
+Chain: **chainId 31337**, `http://127.0.0.1:8545`, `--accounts 20 --block-time 1 --gas-limit 60000000
+--code-size-limit 100000 --base-fee 1000000000` (the flags are in
+[`params/anvil31337_dev/network.params`](params/anvil31337_dev/network.params); bootstrap starts in
+automine mode and switches interval mining on after verify — see §2).
 
 The four sibling repositories (`core/`, `action/`, `group-chat/`, `libs/`, `dex/`) are **read-only
 inputs**. Nothing in this repo writes into them. Their Solidity sources are compiled through the
@@ -24,11 +25,18 @@ inputs**. Nothing in this repo writes into them. Their Solidity sources are comp
 
 ```bash
 # from this directory (requires ~/.foundry/bin on PATH)
-make bootstrap          # ≈70 s on a fresh chain
+make stop && make clean && make bootstrap   # ≈45–50 s, always from a fresh chain
 make verify             # re-run only the checks
 make stop               # stop the anvil this repo started
-make clean              # remove out/ cache/ broadcast/ .anvil/ and generated exports
+make clean              # stop this repo's anvil; remove out/ cache/ broadcast/ .anvil/ and exports
 ```
+
+**The address book is reproducible only from a fresh chain.** `make bootstrap` refuses to start if
+any chain is already running, and before the first transaction it asserts block 0 / deployer nonce 0
+/ no Multicall3 (`make fresh`). A used chain is never exported: `script/export.py` re-checks that the
+DeployLibraries broadcast starts at nonce 0 and that DeployLocal continues immediately after it.
+Never make the chain match a committed address book by setting a nonce — addresses always follow the
+deployment.
 
 Other ports (the second anvil on a machine will collide otherwise):
 
@@ -51,14 +59,20 @@ Everything else (`core/out`, `action/out`, `group-chat/out`) is only needed for 
 |---|---|---|---|
 | 1 | preflight | `make preflight` | toolchain + sibling + artifact + Multicall3-tx checksum checks, `.siblings/` symlinks |
 | 2 | airdrop fixture | `make fixture` | `fixtures/airdrop/anvil31337_dev.json` (10 accounts, proofs, merkle root) |
-| 3 | anvil | `make anvil` | chain 31337 on 8545; refuses to reuse a chain it did not start |
-| 4 | Multicall3 | `make multicall3` | `0xcA11bde05977b3631167028862bE2a173976CA11` from the upstream pre-signed tx |
-| 5 | build | `make build` | `forge build` over this project + the sibling sources (read-only) |
-| 6 | linked libraries | `make libraries` | the 4 action libraries (ERC-20 style CREATEs, addresses to `export/libraries.json`) |
-| 7 | deploy | `make deploy` | WETH, UniswapV2, Airdrop, core (7), action (4), group-chat (12) |
-| 8 | seed | `make seed` | airdrop claims, 5 MemberNFTs, liquidity + governance stake, ETH top-ups |
-| 9 | export | `make export` | `export/deployments/anvil31337_dev.json`, `export/abis/*.json` (feeTo/phase/token metadata read from the node and params) |
-| 10 | verify | `make verify` | `cast` assertions → `export/VERIFIED.md`, non-zero exit on any failure |
+| 3 | build | `make build` | `forge build` over this project + the sibling sources (read-only) |
+| 4 | anvil | `make anvil` | chain 31337 on 8545, automine; **bootstrap refuses to reuse any running chain** |
+| 5 | fresh guard | `make fresh` | deployer nonce 0 + no Multicall3 (bootstrap also requires block 0); fails loudly on a used chain |
+| 6 | Multicall3 | `make multicall3` | `0xcA11bde05977b3631167028862bE2a173976CA11` from the upstream pre-signed tx |
+| 7 | linked libraries | `make libraries` | the 4 action libraries (CREATE at deployer nonces 0..3, addresses to `export/libraries.json`) |
+| 8 | deploy | `make deploy` | WETH, UniswapV2, Airdrop, core (7), action (4), group-chat (12) |
+| 9 | seed | `make seed` | airdrop claims, 5 MemberNFTs, liquidity + governance stake, ETH top-ups |
+| 10 | export | `make export` | `export/deployments/anvil31337_dev.json`, `export/abis/*.json`; nonce sequence re-checked |
+| 11 | verify | `make verify` | `cast` assertions → `export/VERIFIED.md`, non-zero exit on any failure |
+| 12 | interval mining | `anvil_setIntervalMining 1` | chain switches to `--block-time 1` for the frontend/phase clock |
+
+The bootstrap runs with anvil **automine** (one transaction == one block) and switches interval
+mining on only at the end. That makes the export byte-identical between two clean runs — addresses
+*and* block numbers — without changing how the finished chain behaves for the frontend.
 
 Each step is independently runnable and idempotent where that is meaningful (`preflight`, `fixture`,
 `anvil`, `multicall3`, `libraries`, `export`, `verify`). `deploy` + `seed` are one-shot per
@@ -125,39 +139,39 @@ starts at nonce 0 and the transaction order is fixed.
 | key | contract | address | block |
 |---|---|---|---|
 | `MULTICALL3_ADDRESS` | Multicall3 | `0xcA11bde05977b3631167028862bE2a173976CA11` | 1 |
-| `GROUP_ACTION_JOIN_LIBRARY_ADDRESS` | GroupActionJoin | `0x5FbDB2315678afecb367f032d93F642f64180aa3` | 11 |
-| `GROUP_ACTION_MANAGER_LIBRARY_ADDRESS` | GroupActionManager | `0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512` | 11 |
-| `GROUP_ACTION_VERIFY_LIBRARY_ADDRESS` | GroupActionVerify | `0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0` | 11 |
-| `GROUP_RECIPIENTS_LIBRARY_ADDRESS` | GroupRecipients | `0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9` | 11 |
-| `WETH_ADDRESS` | WETH9 | `0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9` | 29 |
-| `UNISWAP_V2_FACTORY_ADDRESS` | UniswapV2Factory | `0x5FC8d32690cc91D4c39d9d3abcBD16989F875707` | 29 |
-| `UNISWAP_V2_ROUTER02_ADDRESS` | UniswapV2Router02 | `0x0165878A594ca255338adfa4d48449f69242Eb8F` | 29 |
-| `UNISWAP_V2_PAIR_ADDRESS` | UniswapV2Pair | `0x3FC12a5abAe69C8Eee58C37cEDC266751507620D` | 29 |
-| `AIRDROP_ADDRESS` | Airdrop | `0xa513E6E4b8f2a923D98304ec87F64353C4D5C853` | 29 |
-| `LOVE20_TOKEN_ADDRESS` | LOVE20Token | `0x8aCd85898458400f7Db866d53FCFF6f0D49741FF` | 29 |
-| `PHASE_ADDRESS` | Phase | `0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6` | 29 |
-| `LAUNCH_ADDRESS` | Launch | `0x8A791620dd6260079BF849Dc5567aDC3F2FdC318` | 29 |
-| `MEMBER_NFT_ADDRESS` | MemberNFT | `0x610178dA211FEF7D417bC0e6FeD39F05609AD788` | 29 |
-| `STAKE_ADDRESS` | Stake | `0xB7f8BC63BbcaD18155201308C8f3540b07f84F5e` | 29 |
-| `SUBMIT_ADDRESS` | Submit | `0xA51c1fc2f0D1a1b8494Ed1FE312d7C3a78Ed91C0` | 29 |
-| `VOTE_ADDRESS` | Vote | `0x0DCd1Bf9A1b36cE34237eEaFef220932846BCD82` | 29 |
-| `MINT_ADDRESS` | Mint | `0x9A676e781A523b5d0C0e43731313A708CB607508` | 29 |
-| `ACTION_TARGET_ADDRESS` | ActionTarget | `0x0B306BF915C4d645ff596e518fAf3F9669b97016` | 29 |
-| `LP_EXECUTOR_ADDRESS` | LpExecutor | `0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1` | 29 |
-| `GROUP_ACTION_EXECUTOR_ADDRESS` | GroupActionExecutor | `0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE` | 29 |
-| `GROUP_SERVICE_EXECUTOR_ADDRESS` | GroupServiceExecutor | `0x68B1D87F95878fE05B998F19b66F4baba5De1aed` | 29 |
-| `GROUP_ADMIN_ADDRESS` | GroupAdmin | `0x3Aa5ebB10DC797CAC828524e59A333d0A371443c` | 30 |
-| `GROUP_CHAT_ADDRESS` | GroupChat | `0xc6e7DF5E7b4f2A278906862b61205850344D4e7d` | 29 |
-| `GROUP_CHAT_BAN_LIST_ADDRESS` | GroupChatBanList | `0x59b670e9fA9D0A427751Af201D676719a970857b` | 29 |
-| `ADMIN_BAN_SOURCE_ADDRESS` | AdminBanSource | `0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1` | 29 |
-| `GOV_VOTED_BAN_SOURCE_ADDRESS` | GovVotedBanSource | `0x322813Fd9A801c5507c9de605d63CEA4f2CE6c44` | 29 |
-| `GROUP_MEMBER_ADDRESS` | GroupMember | `0xa85233C63b9Ee964Add6F2cffe00Fd84eb32338f` | 29 |
-| `GROUP_MEMBER_SCOPE_ADDRESS` | GroupMemberScope | `0x4A679253410272dd5232B3Ff7cF5dbB88f295319` | 29 |
-| `GROUP_JOIN_SCOPE_SOURCE_ADDRESS` | GroupJoinScopeSource | `0x7a2088a1bFc9d81c55368AE168C2C02570cB814F` | 29 |
+| `GROUP_ACTION_JOIN_LIBRARY_ADDRESS` | GroupActionJoin | `0x5FbDB2315678afecb367f032d93F642f64180aa3` | 2 |
+| `GROUP_ACTION_MANAGER_LIBRARY_ADDRESS` | GroupActionManager | `0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512` | 3 |
+| `GROUP_ACTION_VERIFY_LIBRARY_ADDRESS` | GroupActionVerify | `0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0` | 4 |
+| `GROUP_RECIPIENTS_LIBRARY_ADDRESS` | GroupRecipients | `0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9` | 5 |
+| `WETH_ADDRESS` | WETH9 | `0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9` | 6 |
+| `UNISWAP_V2_FACTORY_ADDRESS` | UniswapV2Factory | `0x5FC8d32690cc91D4c39d9d3abcBD16989F875707` | 7 |
+| `UNISWAP_V2_ROUTER02_ADDRESS` | UniswapV2Router02 | `0x0165878A594ca255338adfa4d48449f69242Eb8F` | 8 |
+| `UNISWAP_V2_PAIR_ADDRESS` | UniswapV2Pair | `0x3FC12a5abAe69C8Eee58C37cEDC266751507620D` | 11 |
+| `AIRDROP_ADDRESS` | Airdrop | `0xa513E6E4b8f2a923D98304ec87F64353C4D5C853` | 9 |
+| `LOVE20_TOKEN_ADDRESS` | LOVE20Token | `0x8aCd85898458400f7Db866d53FCFF6f0D49741FF` | 11 |
+| `PHASE_ADDRESS` | Phase | `0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6` | 10 |
+| `LAUNCH_ADDRESS` | Launch | `0x8A791620dd6260079BF849Dc5567aDC3F2FdC318` | 11 |
+| `MEMBER_NFT_ADDRESS` | MemberNFT | `0x610178dA211FEF7D417bC0e6FeD39F05609AD788` | 12 |
+| `STAKE_ADDRESS` | Stake | `0xB7f8BC63BbcaD18155201308C8f3540b07f84F5e` | 13 |
+| `SUBMIT_ADDRESS` | Submit | `0xA51c1fc2f0D1a1b8494Ed1FE312d7C3a78Ed91C0` | 14 |
+| `VOTE_ADDRESS` | Vote | `0x0DCd1Bf9A1b36cE34237eEaFef220932846BCD82` | 15 |
+| `MINT_ADDRESS` | Mint | `0x9A676e781A523b5d0C0e43731313A708CB607508` | 16 |
+| `ACTION_TARGET_ADDRESS` | ActionTarget | `0x0B306BF915C4d645ff596e518fAf3F9669b97016` | 17 |
+| `LP_EXECUTOR_ADDRESS` | LpExecutor | `0x959922bE3CAee4b8Cd9a407cc3ac1C251C2007B1` | 18 |
+| `GROUP_ACTION_EXECUTOR_ADDRESS` | GroupActionExecutor | `0x9A9f2CCfdE556A7E9Ff0848998Aa4a0CFD8863AE` | 19 |
+| `GROUP_SERVICE_EXECUTOR_ADDRESS` | GroupServiceExecutor | `0x68B1D87F95878fE05B998F19b66F4baba5De1aed` | 20 |
+| `GROUP_ADMIN_ADDRESS` | GroupAdmin | `0x3Aa5ebB10DC797CAC828524e59A333d0A371443c` | 21 |
+| `GROUP_CHAT_ADDRESS` | GroupChat | `0xc6e7DF5E7b4f2A278906862b61205850344D4e7d` | 22 |
+| `GROUP_CHAT_BAN_LIST_ADDRESS` | GroupChatBanList | `0x59b670e9fA9D0A427751Af201D676719a970857b` | 23 |
+| `ADMIN_BAN_SOURCE_ADDRESS` | AdminBanSource | `0x4ed7c70F96B99c776995fB64377f0d4aB3B0e1C1` | 24 |
+| `GOV_VOTED_BAN_SOURCE_ADDRESS` | GovVotedBanSource | `0x322813Fd9A801c5507c9de605d63CEA4f2CE6c44` | 25 |
+| `GROUP_MEMBER_ADDRESS` | GroupMember | `0xa85233C63b9Ee964Add6F2cffe00Fd84eb32338f` | 26 |
+| `GROUP_MEMBER_SCOPE_ADDRESS` | GroupMemberScope | `0x4A679253410272dd5232B3Ff7cF5dbB88f295319` | 27 |
+| `GROUP_JOIN_SCOPE_SOURCE_ADDRESS` | GroupJoinScopeSource | `0x7a2088a1bFc9d81c55368AE168C2C02570cB814F` | 28 |
 | `TOKEN_MAIN_MANAGER_ADDRESS` | TokenMainManager | `0x09635F643e140090A9A8Dcd712eD6285858ceBef` | 29 |
-| `TOKEN_GOV_MANAGER_ADDRESS` | TokenGovManager | `0xc5a5C42992dECbae36851359345FE25997F5C42d` | 29 |
-| `TOKEN_ACTION_GOV_MANAGER_ADDRESS` | TokenActionGovManager | `0x67d269191c92Caf3cD7723F116c85e6E9bf55933` | 29 |
-| `TOKEN_ACTION_MAIN_MANAGER_ADDRESS` | TokenActionMainManager | `0xE6E340D132b5f46d1e472DebcD681B2aBc16e57E` | 29 |
+| `TOKEN_GOV_MANAGER_ADDRESS` | TokenGovManager | `0xc5a5C42992dECbae36851359345FE25997F5C42d` | 30 |
+| `TOKEN_ACTION_GOV_MANAGER_ADDRESS` | TokenActionGovManager | `0x67d269191c92Caf3cD7723F116c85e6E9bf55933` | 31 |
+| `TOKEN_ACTION_MAIN_MANAGER_ADDRESS` | TokenActionMainManager | `0xE6E340D132b5f46d1e472DebcD681B2aBc16e57E` | 32 |
 
 Notes:
 
@@ -166,9 +180,13 @@ Notes:
   truth — the org's committed `addresses.*.params` files are stale and mutually inconsistent.
 * `UniswapV2Pair` and `LOVE20Token` have no transaction of their own (created inside `Launch`'s
   constructor), so their block is attributed to `Launch`.
-* **Addresses are deterministic, block numbers are not.** `--block-time 1` mines on a wall clock, so
-  how many transactions land in one block depends on machine speed; a re-run gives the same addresses
-  at slightly different heights. Never key anything off the block numbers.
+* **Addresses and block numbers are deterministic on a clean chain.** Bootstrap uses automine and
+  `--slow` so every transaction gets exactly one block, numbered from 1. Two
+  `make stop && make clean && make bootstrap` runs produce byte-identical
+  `export/deployments/anvil31337_dev.json` (verify with `sha256sum`). The finished chain resumes
+  1-second blocks; only *post-bootstrap* activity changes heights.
+* The deployer starts at CREATE nonce 0. There is deliberately no "start nonce" parameter: a
+  non-zero start is a bug, not a configuration choice (see `params/anvil31337_dev/accounts.params`).
 * `UniswapV2Factory`/`Router02`/`Pair` creation bytecode is **not recompiled** here: the published
   dex artifacts are read and hash-checked against the constants in
   `dex/script/deploy/DeployUniswapV2.s.sol` (`PAIR_INIT_CODE_HASH`, `FACTORY_CREATION_HASH`,
@@ -379,17 +397,19 @@ hand-edited export cannot pass `make verify`.
 ## 11. Re-running
 
 ```bash
-# everything, from scratch (stops nothing you started by hand; removes build + chain state)
+# everything, from scratch (stops this repo's anvil, removes build + chain state)
 make stop
 make clean
 make bootstrap
 
-# step by step
-make preflight && make fixture && make anvil
+# step by step (the bootstrap order; fresh must pass before the first deployment tx)
+make preflight && make fixture && make build && make anvil && make fresh
 make multicall3 && make libraries && make deploy && make seed
 make export && make verify
+# then: cast rpc anvil_setIntervalMining 1 --rpc-url http://127.0.0.1:8545
 
-# a second, independent stack on the same machine
+# a one-off chain on another port (only one chain at a time: the frontend has one RPC)
+make stop && make clean
 make bootstrap PORT=8556
 
 # inspect
@@ -398,9 +418,21 @@ cast call $MEMBER_NFT 'balanceOf(address)(uint256)' 0xf39Fd6e51aad88F6F4ce6aB882
 cast call $PAIR 'getReserves()(uint112,uint112,uint32)' --rpc-url http://127.0.0.1:8545
 ```
 
-`make anvil` refuses to attach to a chain it did not start (no live `.anvil/anvil.pid` matching the
-endpoint), so a stray anvil on 8545 cannot be silently polluted. It prints the two ways out (stop it,
-or use `PORT=`).
+`make bootstrap` refuses to reuse any running chain; `make anvil` refuses to attach to a chain this
+repo did not start (no live `.anvil/anvil.pid` matching the endpoint), so a stray anvil on 8545 cannot
+be silently polluted. Both print the ways out (stop it, or use `PORT=`).
+
+To prove determinism:
+
+```bash
+make stop && make clean && make bootstrap
+cp export/deployments/anvil31337_dev.json /tmp/anvil-1.json
+make stop && make clean && make bootstrap
+sha256sum /tmp/anvil-1.json export/deployments/anvil31337_dev.json   # same hash
+```
+
+The frontend consumes the export only through `pnpm sync:anvil` (documented in the frontend's
+ADR-0004 §6); it never hand-edits the address book. The deployer nonce is never set by hand.
 
 ---
 
@@ -412,8 +444,10 @@ or use `PORT=`).
 2. **Airdrop has no `onTokenLaunched`.** Child-token launches must use `NoCallback` mode on this
    chain (see §9).
 3. **Address-determinism is per fresh chain.** Everything is plain `CREATE` from anvil account #0.
-   Deterministic on a fresh chain, but re-running `make deploy` on a dirty chain gives new addresses
-   — always consume `export/deployments/anvil31337_dev.json`, never hardcode.
+   `make bootstrap` asserts a fresh chain (block 0, nonce 0, no Multicall3) and refuses to reuse one,
+   so a clean run is reproducible. Re-running `make deploy` manually on a used chain gives new
+   addresses; `export.py` will refuse to export such a run, and the frontend only consumes the export
+   through `pnpm sync:anvil`.
 4. **`make seed` is one-shot per deployment.** Running it twice on the same deployment reverts on
    "fixture entry is not claimable" (the first run consumed the shares) and on duplicate MemberNFT
    names. Re-run `make deploy && make seed` for a fresh stack.
@@ -471,7 +505,10 @@ anvil/
 
 | symptom | cause / fix |
 |---|---|
-| `something is already serving chain 31337 at http://127.0.0.1:8545` | another anvil holds the port. `make bootstrap PORT=8555`, or stop that process yourself. |
+| `a chain is already running at http://127.0.0.1:8545; bootstrap only deploys onto a fresh chain` | bootstrap purposefully refuses to reuse a chain. Run `make stop && make clean && make bootstrap`. |
+| `refusing to deploy onto a used chain: block=…, deployer nonce=…` | your chain was not clean (usually a reused/old anvil). `make stop && make clean && make bootstrap`; never set a nonce by hand. |
+| `deployment did not start from nonce 0` from `make export` | the broadcast came from a used chain. Rebuild from scratch; the export is intentionally refused. |
+| `something is already serving chain 31337 at http://127.0.0.1:8545` | another process holds the port. Stop it yourself (this repo never kills foreign processes), or use `PORT=` for an explicitly separate chain. |
 | `missing dex artifact: ../dex/build/...` | run `make -C ../dex build` yourself (this repo will not write into `dex/`). |
 | `failed to parse, too many arguments passed` | you are passing multiple `--libraries` values to the CLI; use `FOUNDRY_LIBRARIES` (already done by `script/local.sh`). |
 | `fixture entry is not claimable` from `make seed` | seed already ran on this deployment: `make deploy && make seed`. |

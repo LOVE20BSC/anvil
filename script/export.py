@@ -294,6 +294,65 @@ def broadcast_blocks(path: Path) -> dict[str, int]:
     return blocks
 
 
+def broadcast_nonces(path: Path, sender: str) -> list[int]:
+    """The CREATE/CALL nonces of one sender, in broadcast order."""
+    data = read_json(path)
+    if not data:
+        fail(f"missing broadcast {path} - cannot prove the deployment started from nonce 0")
+    nonces: list[int] = []
+    for tx in data.get("transactions", []):
+        transaction = tx.get("transaction") or {}
+        if str(transaction.get("from", "")).lower() != sender.lower():
+            continue
+        raw = transaction.get("nonce")
+        if raw is None:
+            fail(f"{path} has a transaction without a nonce; cannot prove deployment freshness")
+        nonces.append(int(raw, 16) if isinstance(raw, str) else int(raw))
+    if not nonces:
+        fail(f"{path} has no transaction from deployer {sender}")
+    return nonces
+
+
+def assert_fresh_deployment(libraries_path: Path, deploy_path: Path, deployer: str) -> None:
+    """Reject an export whose broadcasts did not start at CREATE nonce 0.
+
+    Addresses are CREATE(deployer, nonce) results, so a deployment that started on a used chain is
+    not reproducible and must never become the committed address book. The libraries run is first
+    (nonces 0..n-1); the main deployment must continue immediately after it. This is derived from
+    the broadcast files themselves, not from a hardcoded nonce.
+    """
+    library_nonces = broadcast_nonces(libraries_path, deployer)
+    deploy_nonces = broadcast_nonces(deploy_path, deployer)
+
+    if library_nonces[0] != 0:
+        fail(
+            f"deployment did not start from nonce 0: the first DeployLibraries transaction used "
+            f"nonce {library_nonces[0]} ({libraries_path}).\n"
+            "  This export comes from a used chain and its addresses are not reproducible. "
+            "Re-run from scratch: make stop && make clean && make bootstrap"
+        )
+    expected = list(range(library_nonces[0], library_nonces[0] + len(library_nonces)))
+    if library_nonces != expected:
+        fail(f"DeployLibraries nonces are not contiguous: {library_nonces} (expected {expected})")
+
+    first_deploy_nonce = library_nonces[-1] + 1
+    if deploy_nonces[0] != first_deploy_nonce:
+        fail(
+            f"DeployLocal started at nonce {deploy_nonces[0]}, expected {first_deploy_nonce} right "
+            f"after the {len(library_nonces)} linked libraries.\n"
+            "  The address book would not match a clean `make bootstrap`. "
+            "Re-run: make stop && make clean && make bootstrap"
+        )
+    expected_deploy = list(range(deploy_nonces[0], deploy_nonces[0] + len(deploy_nonces)))
+    if deploy_nonces != expected_deploy:
+        fail(f"DeployLocal nonces are not contiguous: {deploy_nonces} (expected {expected_deploy})")
+
+    print(
+        f"deployment nonces: libraries {library_nonces[0]}..{library_nonces[-1]}, "
+        f"deploy {deploy_nonces[0]}..{deploy_nonces[-1]} (fresh chain)"
+    )
+
+
 def abi_env_var(path: Path) -> str:
     """Which override env var the user would set to point at a throwaway build of that repo."""
     for env_var, root in (
@@ -345,11 +404,17 @@ def main() -> int:
     if multicall3_info:
         blocks[multicall3_info["address"].lower()] = int(multicall3_info["blockNumber"])
 
+    libraries_broadcast = (
+        ROOT / "broadcast" / "DeployLibraries.s.sol" / str(chain_id) / "runLibraries-latest.json"
+    )
     deploy_broadcast = ROOT / "broadcast" / "DeployLocal.s.sol" / str(chain_id) / "runLocal-latest.json"
-    blocks.update(broadcast_blocks(ROOT / "broadcast" / "DeployLibraries.s.sol" / str(chain_id) / "runLibraries-latest.json"))
+    blocks.update(broadcast_blocks(libraries_broadcast))
     deploy_blocks = broadcast_blocks(deploy_broadcast)
     blocks.update(deploy_blocks)
     deploy_block = max(deploy_blocks.values()) if deploy_blocks else 0
+
+    deployer = deployer_from_broadcast(deploy_broadcast)
+    assert_fresh_deployment(libraries_broadcast, deploy_broadcast, deployer)
 
     # ---- addresses: flat map in the org's UPPER_SNAKE convention, libraries included ----
     flat = dict(addresses)
@@ -380,8 +445,6 @@ def main() -> int:
             f"FACTORY_FEE_TO_SETTER expects address(0) (protocol fee permanently off)",
             file=sys.stderr,
         )
-
-    deployer = deployer_from_broadcast(deploy_broadcast)
 
     # ---- contracts: contract name -> {address, blockNumber, group} ----
     contracts = {}

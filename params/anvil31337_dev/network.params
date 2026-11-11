@@ -5,17 +5,22 @@
 # the process flags below are what `make anvil` needs and they are the reason this file exists.
 #
 # The chain is started by `anvil` with exactly these flags:
-#   --chain-id $CHAIN_ID --host $ANVIL_HOST --port $ANVIL_PORT --block-time $ANVIL_BLOCK_TIME
+#   --chain-id $CHAIN_ID --host $ANVIL_HOST --port $ANVIL_PORT
 #   --accounts $ANVIL_ACCOUNTS --balance $ANVIL_BALANCE --gas-limit $ANVIL_GAS_LIMIT
 #   --code-size-limit $ANVIL_CODE_SIZE_LIMIT --base-fee $ANVIL_BASE_FEE
+#
+# No --block-time is passed at startup: anvil runs in automine mode (one transaction == one block)
+# for the whole bootstrap, which makes the exported block numbers deterministic as well as the
+# addresses. After `make verify` the orchestrator enables interval mining with the value below
+# (`anvil_setIntervalMining`). `make anvil` (standalone) enables it immediately after startup.
 #
 # RPC_URL is DERIVED from ANVIL_HOST/ANVIL_PORT by script/lib/params.sh (http://<host>:<port>) and
 # is exported for every forge/cast call. It is deliberately not a file key: overriding the port with
 # `make bootstrap PORT=8555` must move the RPC endpoint with it, and a second key could disagree.
 #
-# `--block-time 1` means one block per second even when idle, so a 120-block phase is ~2 minutes of
-# wall clock (120 blocks x 1 s), matching PHASE_TARGET_SECONDS=120. PHASE_ORIGIN_BLOCKS /
-# PHASE_ORIGIN_PHASE_BLOCKS in core.params are chosen against this.
+# ANVIL_BLOCK_TIME is the post-bootstrap interval: one block per second even when idle, so a
+# 120-block phase is ~2 minutes of wall clock (120 blocks x 1 s), matching PHASE_TARGET_SECONDS=120.
+# PHASE_ORIGIN_BLOCKS / PHASE_ORIGIN_PHASE_BLOCKS in core.params are chosen against this.
 CHAIN_ID=31337
 ANVIL_HOST=127.0.0.1
 ANVIL_PORT=8545

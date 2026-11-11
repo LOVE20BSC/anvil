@@ -9,13 +9,21 @@
 #   fixture      (re)generate fixtures/airdrop/anvil31337_dev.json
 #   anvil        start anvil with params/anvil31337_dev/network.params, or reuse a healthy one
 #   stop         stop the anvil started by this repo (pid file in .anvil/)
+#   fresh        assert deployer nonce 0 + no Multicall3 (bootstrap also requires block 0)
 #   multicall3   deploy Multicall3 at its canonical address from the upstream pre-signed tx
 #   libraries    deploy the four action libraries (link targets for the executors)
 #   deploy       deploy WETH + UniswapV2 + Airdrop + core + action + group-chat
 #   seed         seed members, identities, liquidity, ETH balances
 #   export       build export/deployments/anvil31337_dev.json + export/abis/*.json
 #   verify       cast-level assertions over every exported address (writes export/VERIFIED.md)
-#   bootstrap    preflight -> fixture -> anvil -> multicall3 -> libraries -> deploy -> seed -> export -> verify
+#   bootstrap    preflight -> fixture -> build -> anvil -> fresh -> multicall3 -> libraries ->
+#                deploy -> seed -> export -> verify -> interval mining
+#
+# The address book is only reproducible when the deployment starts from CREATE nonce 0 on a chain
+# at block 0. `bootstrap` therefore refuses to reuse a chain: a dirty chain silently produces a
+# different address set (that is exactly how the old, non-reproducible book was created). It starts
+# anvil in automine mode (one transaction == one block, so even block numbers are deterministic),
+# verifies the whole stack, and only then enables the 1s interval mining the frontend expects.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -163,6 +171,17 @@ rpc_chain_id() {
     cast chain-id --rpc-url "$RPC_URL" 2>/dev/null || true
 }
 
+# The bootstrap deploys in automine mode (one transaction == one block), which makes the exported
+# block numbers deterministic as well as the addresses. The frontend and the phase clock need the
+# profile's 1s interval mining, so it is switched on only AFTER export/verify. `make anvil` (the
+# standalone developer chain) starts with it enabled immediately.
+enable_interval_mining() {
+    if [ "${ANVIL_BLOCK_TIME:-0}" -gt 0 ] 2>/dev/null; then
+        cast rpc anvil_setIntervalMining "$ANVIL_BLOCK_TIME" --rpc-url "$RPC_URL" >/dev/null
+        ok "interval mining enabled (${ANVIL_BLOCK_TIME}s per block)"
+    fi
+}
+
 cmd_anvil() {
     load_params
     require_tools
@@ -170,10 +189,19 @@ cmd_anvil() {
 
     local running_id
     running_id="$(rpc_chain_id)"
+    if [ "${BOOTSTRAP_ACTIVE:-0}" = "1" ] && [ "$running_id" = "$CHAIN_ID" ]; then
+        # bootstrap must own a FRESH chain. Reusing a chain that has already served a deployment
+        # moves the deployer to a later nonce and silently changes every CREATE address - the exact
+        # failure that produced the unreproducible address book this guard exists to prevent.
+        die "a chain is already running at ${RPC_URL}; bootstrap only deploys onto a fresh chain.
+    Stop it and remove all chain/build state first:
+      make stop && make clean && make bootstrap"
+    fi
     if [ "$running_id" = "$CHAIN_ID" ]; then
         # Only a chain THIS repo started may be reused. Anything else on the same port belongs to
         # another project (a very common case on a developer machine), and deploying the whole stack
         # onto it would silently pollute it and produce an address book nobody can reproduce.
+        # `make anvil` may reuse its own chain; `make bootstrap` deliberately does not (see above).
         local pid="" rec_host="" rec_port=""
         if [ -f "$ANVIL_PID_FILE" ]; then
             read -r pid rec_host rec_port <"$ANVIL_PID_FILE" || true
@@ -192,11 +220,13 @@ cmd_anvil() {
     fi
 
     : >"$ANVIL_LOG"
+    # No --block-time: automine, one block per transaction. This keeps the export deterministic
+    # (block numbers included); interval mining is enabled after bootstrap / immediately for
+    # `make anvil`.
     nohup anvil \
         --chain-id "$CHAIN_ID" \
         --host "$ANVIL_HOST" \
         --port "$ANVIL_PORT" \
-        --block-time "$ANVIL_BLOCK_TIME" \
         --accounts "$ANVIL_ACCOUNTS" \
         --balance "$ANVIL_BALANCE" \
         --gas-limit "$ANVIL_GAS_LIMIT" \
@@ -210,7 +240,10 @@ cmd_anvil() {
     local i
     for i in $(seq 1 50); do
         if [ "$(rpc_chain_id)" = "$CHAIN_ID" ]; then
-            ok "anvil up (pid $!, log .anvil/anvil.log)"
+            ok "anvil up (pid $!, automine, log .anvil/anvil.log)"
+            if [ "${BOOTSTRAP_ACTIVE:-0}" != "1" ]; then
+                enable_interval_mining
+            fi
             return 0
         fi
         sleep 0.2
@@ -233,6 +266,37 @@ cmd_stop() {
     else
         warn "no .anvil/anvil.pid - was the chain started by this repo?"
     fi
+}
+
+# ------------------------------------------------------------------------------------------------
+# fresh-chain guard
+# ------------------------------------------------------------------------------------------------
+# Addresses are CREATE(deployer, nonce) results. A chain that has already processed a transaction is
+# not reproducible, even if it has the same chain id. This asserts the facts that make the export
+# deterministic from nonce 0: the deployer has sent nothing and the canonical Multicall3 address is
+# still empty (it is published by a different account, so a non-zero deployer nonce would not catch a
+# half-published chain). During bootstrap it additionally requires block 0: the deployment runs in
+# automine mode, and that is what makes the exported block numbers identical between clean runs.
+# A standalone `make anvil` ticks blocks while it sits idle, so only bootstrap pins the height.
+cmd_fresh() {
+    load_params
+    step "fresh-chain guard"
+    local block nonce multicall_code used=0
+    block="$(cast block-number --rpc-url "$RPC_URL")"
+    nonce="$(cast nonce "$DEPLOYER_ADDRESS" --rpc-url "$RPC_URL")"
+    multicall_code="$(cast code "$MULTICALL3_ADDRESS" --rpc-url "$RPC_URL")"
+    [ "$nonce" = "0" ] || used=1
+    [ "$multicall_code" = "0x" ] || used=1
+    if [ "${BOOTSTRAP_ACTIVE:-0}" = "1" ] && [ "$block" != "0" ]; then
+        used=1
+    fi
+    if [ "$used" = "1" ]; then
+        die "refusing to deploy onto a used chain: block=$block, deployer nonce=$nonce, Multicall3 code=${#multicall_code} hex chars.
+    A non-fresh chain changes every CREATE address and produces an address book that nobody can
+    reproduce. Reset the chain and every build artifact first:
+      make stop && make clean && make bootstrap"
+    fi
+    ok "fresh enough (${DEPLOYER_ADDRESS} nonce 0, Multicall3 absent, block $block)"
 }
 
 # ------------------------------------------------------------------------------------------------
@@ -300,7 +364,7 @@ cmd_libraries() {
         --sig "runLibraries()" \
         --rpc-url "$RPC_URL" \
         --private-key "$DEPLOYER_PRIVATE_KEY" \
-        --broadcast --legacy \
+        --broadcast --legacy --slow \
         >"$ANVIL_DIR/deploy-libraries.log" 2>&1 \
         || { tail -40 "$ANVIL_DIR/deploy-libraries.log" >&2; die "library deployment failed (see .anvil/deploy-libraries.log)"; }
 
@@ -369,7 +433,7 @@ cmd_deploy() {
         --sig "runLocal()" \
         --rpc-url "$RPC_URL" \
         --private-key "$DEPLOYER_PRIVATE_KEY" \
-        --broadcast --legacy \
+        --broadcast --legacy --slow \
         >"$ANVIL_DIR/deploy.log" 2>&1 \
         || { grep -v '^\s*$' "$ANVIL_DIR/deploy.log" | tail -40 >&2; die "deployment failed (see .anvil/deploy.log)"; }
     grep -E "^(WETH|UniswapV2|Airdrop|Phase|Launch|MemberNFT|Stake|Submit|Vote|Mint|ActionTarget|LpExecutor|Group|Token)" \
@@ -387,7 +451,7 @@ cmd_seed() {
         --sig "runSeed()" \
         --rpc-url "$RPC_URL" \
         --private-key "$DEPLOYER_PRIVATE_KEY" \
-        --broadcast --legacy \
+        --broadcast --legacy --slow \
         >"$ANVIL_DIR/seed.log" 2>&1 \
         || { grep -v '^\s*$' "$ANVIL_DIR/seed.log" | tail -40 >&2; die "seeding failed (see .anvil/seed.log)"; }
     grep -E "^  (member|liquidity|airdrop|eth|pair|total)" "$ANVIL_DIR/seed.log" | sed 's/^/  /' || true
@@ -419,27 +483,40 @@ cmd_build() {
 
 cmd_clean() {
     load_params
+    # Never leave an anvil running without its pid file: the next bootstrap would either attach to
+    # this used chain (reproducibility bug) or refuse it as "unknown". Stop only the chain this repo
+    # started; a foreign process on the same port is left alone and reported by the next bootstrap.
+    if [ -f "$ANVIL_PID_FILE" ]; then
+        cmd_stop
+    fi
     step "clean"
     rm -rf "$ROOT/out" "$ROOT/cache" "$ROOT/broadcast"
     rm -rf "$DEPLOYMENTS_DIR" "$ABIS_DIR" "$OUT_DIR/libraries.json" "$OUT_DIR/VERIFIED.md"
     rm -rf "$ANVIL_DIR"
-    ok "removed out/ cache/ broadcast/ .anvil/ and exported artifacts (anvil process is not touched)"
+    ok "removed out/ cache/ broadcast/ .anvil/ and exported artifacts"
 }
 
 # ------------------------------------------------------------------------------------------------
 # bootstrap
 # ------------------------------------------------------------------------------------------------
 cmd_bootstrap() {
+    # Set before cmd_anvil: bootstrap refuses to reuse any running chain, and starts anvil in
+    # automine mode so that one transaction == one block (deterministic addresses AND block numbers).
+    export BOOTSTRAP_ACTIVE=1
     cmd_preflight
     cmd_fixture
-    cmd_anvil
-    cmd_multicall3
     cmd_build
+    cmd_anvil
+    cmd_fresh
+    cmd_multicall3
     cmd_libraries
     cmd_deploy
     cmd_seed
     cmd_export
     cmd_verify
+    # The export is complete and deterministic; now hand the chain to the frontend with the
+    # profile's block interval.
+    enable_interval_mining
     printf "\n${GREEN}bootstrap complete${NC} - chain %s at %s, address book export/deployments/%s.json\n" \
         "$CHAIN_ID" "$RPC_URL" "$PROFILE"
 }
@@ -455,6 +532,7 @@ main() {
         fixture) cmd_fixture ;;
         anvil) cmd_anvil ;;
         stop) cmd_stop ;;
+        fresh) cmd_fresh ;;
         multicall3) cmd_multicall3 ;;
         libraries) cmd_libraries ;;
         deploy) cmd_deploy ;;

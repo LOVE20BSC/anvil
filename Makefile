@@ -23,17 +23,18 @@ export ANVIL_HOST := $(HOST)
 endif
 export PROFILE
 
-.PHONY: help bootstrap build preflight fixture anvil stop multicall3 libraries deploy seed export verify clean all
+.PHONY: help bootstrap build preflight fixture anvil stop fresh multicall3 libraries deploy seed export verify clean all
 
 help:
 	@echo "LOVE20BSC local chain (profile: $(PROFILE))"
 	@echo ""
-	@echo "  make bootstrap     start anvil + fixture + Multicall3 + libraries + deploy + seed + export + verify"
+	@echo "  make bootstrap     build + start a fresh anvil + Multicall3 + libraries + deploy + seed + export + verify"
 	@echo ""
 	@echo "  Individual steps (the order bootstrap runs them in):"
 	@echo "    make preflight   toolchain, sibling checkouts, dex artifacts, Multicall3 tx checksum"
 	@echo "    make fixture     (re)generate fixtures/airdrop/$(PROFILE).json"
-	@echo "    make anvil       start anvil with the flags in params/$(PROFILE)/network.params"
+	@echo "    make anvil       start anvil with the flags in params/$(PROFILE)/network.params (reuse allowed)"
+	@echo "    make fresh       assert deployer nonce 0 + no Multicall3 (bootstrap also pins block 0)"
 	@echo "    make build       forge build (compiles the siblings read-only)"
 	@echo "    make multicall3  deploy Multicall3 at 0xcA11bde05977b3631167028862bE2a173976CA11"
 	@echo "    make libraries   deploy the four linked action libraries"
@@ -43,7 +44,7 @@ help:
 	@echo "    make verify      cast assertions over every exported address -> export/VERIFIED.md"
 	@echo ""
 	@echo "  make stop          stop the anvil this repo started"
-	@echo "  make clean         remove out/ cache/ broadcast/ .anvil/ and generated exports"
+	@echo "  make clean         stop this repo's anvil; remove out/ cache/ broadcast/ .anvil/ and exports"
 	@echo ""
 	@echo "  make bootstrap PORT=8555    run on another port"
 
@@ -63,6 +64,9 @@ fixture:
 
 anvil:
 	@$(LOCAL) anvil
+
+fresh:
+	@$(LOCAL) fresh
 
 stop:
 	@$(LOCAL) stop

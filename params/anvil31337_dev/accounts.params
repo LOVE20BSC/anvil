@@ -6,7 +6,14 @@
 # network. They live in a committed .params file because a *local* bootstrap has to be reproducible
 # without a keystore prompt or a hand-edited file - see README "Secrets".
 #
-# DEPLOY_ACCOUNT_INDEX selects the broadcasting account (anvil #0). The seed set is the contiguous
+# DEPLOY_ACCOUNT_INDEX selects the broadcasting account (anvil #0). Its CREATE nonce MUST be 0 when
+# the deployment starts: every address in the export is CREATE(deployer, nonce), so a non-zero
+# starting nonce silently produces a different address book. There is deliberately no "start nonce"
+# parameter - offsets are not a configuration option. `make bootstrap` asserts block 0 / nonce 0 /
+# no Multicall3 before deploying (script/local.sh fresh) and export.py re-checks the broadcast
+# nonces, so a used chain fails loudly instead of being exported.
+#
+# The seed set is the contiguous
 # range SEED_ACCOUNT_START_INDEX .. +SEED_ACCOUNT_COUNT-1. Every seed account must appear in the
 # airdrop fixture with a non-zero share; script/SeedFlow.s.sol asserts fixture account == derived
 # address before claiming, so a fixture generated for a different set fails loudly instead of
