@@ -240,8 +240,11 @@ export/
   "uniswapV2": { "factory": "0x…", "router02": "0x…", "weth": "0x…", "pair": "0x…", "feeTo": "0x0000000000000000000000000000000000000000", "pairInitCodeHash": "0x96e8…" },
   "airdropDistributor": {
     "address": "0x…", "token": "0x…", "merkleRoot": "0x…", "totalShare": "1000000000000000000",
-    "claimDelayRounds": 1, "claimableFromRound": 2, "snapshotUri": "",
-    "intendedSnapshotUri": "http://127.0.0.1:5180/airdrop/anvil31337_dev.json", "snapshotFile": "…"
+    "accountCount": "10", "claimDelayRounds": 1, "claimableFromRound": 2,
+    "totalClaimedShare": 500000000000000000, "totalRemainingShare": 500000000000000000,
+    "totalClaimedAmount": 500000000000000000000000000, "remainingAmount": 500000000000000000000000000,
+    "snapshotUri": "", "intendedSnapshotUri": "http://127.0.0.1:5180/airdrop/anvil31337_dev.json",
+    "snapshotFile": "export/airdrop/anvil31337_dev.json"
   },
   "params": { "tokenName": "TestLOVE20@TestWETH", "phaseOriginPhaseBlocks": 120, "groupActionSplits": ["…"] }
 }
@@ -379,8 +382,10 @@ constructor provenance parameters they needed.
   intervening blocks (anvil-only; it happens after the deploy broadcast, so exported addresses and
   block numbers are unchanged) and `SeedFlow` asserts the round before claiming.
 * Claim interface: `claim(tokenAddress, share, proof)` — the distributor pays `msg.sender`, there is
-  no account argument. `claimableAmount(tokenAddress, claimer, share, proof)` quotes the payout, and
-  `claimedAmountByTokenAddressByClaimer` / `isClaimedByTokenAddressByClaimer` report past claims.
+  no account argument. `claimableAmount(tokenAddress, claimer, share, proof)` quotes the payout,
+  `isClaimed(tokenAddress, claimer)` / `claimedAmount(tokenAddress, claimer)` report past claims, and
+  `airdropInfo(tokenAddress)` returns the whole per-token state (root, claim round, claimed/remaining
+  shares and amounts, snapshot URI) in one struct.
 * Claim math is unchanged in shape: `amount = balanceOf(distributor) * share / remainingShare(token)`.
   Shares are relative, never absolute amounts.
 * The distributor implements `ILaunchDistributor.onTokenLaunched`, so child-token launches **can**
@@ -419,13 +424,14 @@ Headline values from the verified run:
 | pair reserves | `200000000000000000000000` token / `100000000000000000000` WETH |
 | LP held by `Stake` | `4472135954999579391818` |
 | `Stake.totalLiquidityShares` | `4472135954999579391818` |
-| `AirdropDistributor.merkleRootByTokenAddress(genesis)` | `0x046a5d5357fd4da6986a88fb1e2baf3603375d2099ce9f46b9d6fbe333c6c404` (= params = fixture) |
+| `AirdropDistributor.airdropInfo(genesis).merkleRoot` | `0x046a5d5357fd4da6986a88fb1e2baf3603375d2099ce9f46b9d6fbe333c6c404` (= params = fixture) |
 | `AirdropDistributor.TOTAL_SHARE()` | `1000000000000000000` (= fixture) |
-| `AirdropDistributor.claimableFromRoundByTokenAddress(genesis)` | `2` |
-| `AirdropDistributor.claimedAmountByTokenAddressByClaimer(genesis, seed[0])` | `100000000000000000000000000` |
-| `AirdropDistributor.isClaimedByTokenAddressByClaimer(genesis, seed[0])` | `true` |
-| `AirdropDistributor.claimedShare / remainingShare` | `500000000000000000` / `500000000000000000` |
-| `AirdropDistributor.snapshotUriByTokenAddress(genesis)` | `""` (core refuses genesis URI updates, §9) |
+| `AirdropDistributor.airdropInfo(genesis).claimableFromRound` | `2` |
+| `AirdropDistributor.claimedAmount(genesis, seed[0])` | `100000000000000000000000000` |
+| `AirdropDistributor.isClaimed(genesis, seed[0])` | `true` |
+| `AirdropDistributor.airdropInfo(genesis).totalClaimedShare` / `totalRemainingShare` | `500000000000000000` / `500000000000000000` |
+| `AirdropDistributor.airdropInfo(genesis).totalClaimedAmount` / `remainingAmount` | `500000000000000000000000000` / `500000000000000000000000000` |
+| `AirdropDistributor.airdropInfo(genesis).snapshotUri` | `""` (core refuses genesis URI updates, §9) |
 | ETH balance of each seeded account | ≥ `100000000000000000000` wei |
 | `Multicall3.getBlockNumber()` | > 0 |
 
