@@ -94,7 +94,7 @@ block_number="$(cast block-number --rpc-url "$RPC_URL")"
 check "chain id" "$CHAIN_ID" "$chain_id"
 
 TOKEN="$(json_addr LOVE20_TOKEN_ADDRESS)"
-AIRDROP="$(json_addr AIRDROP_ADDRESS)"
+DISTRIBUTOR="$(json_addr AIRDROP_DISTRIBUTOR_ADDRESS)"
 PHASE="$(json_addr PHASE_ADDRESS)"
 LAUNCH="$(json_addr LAUNCH_ADDRESS)"
 MEMBER_NFT="$(json_addr MEMBER_NFT_ADDRESS)"
@@ -173,6 +173,8 @@ check "Vote.SUBMIT_ADDRESS()" "$SUBMIT" "$(call "$VOTE" 'SUBMIT_ADDRESS()(addres
 check "Vote.STAKE_ADDRESS()" "$STAKE" "$(call "$VOTE" 'STAKE_ADDRESS()(address)')"
 check "Submit.STAKE_ADDRESS()" "$STAKE" "$(call "$SUBMIT" 'STAKE_ADDRESS()(address)')"
 check "Mint.MEMBER_NFT_ADDRESS()" "$MEMBER_NFT" "$(call "$MINT" 'MEMBER_NFT_ADDRESS()(address)')"
+check "AirdropDistributor.LAUNCH_ADDRESS()" "$LAUNCH" "$(call "$DISTRIBUTOR" 'LAUNCH_ADDRESS()(address)')"
+check "AirdropDistributor.PHASE_ADDRESS()" "$PHASE" "$(call "$DISTRIBUTOR" 'PHASE_ADDRESS()(address)')"
 check "ActionTarget.MINT_ADDRESS()" "$MINT" "$(call "$ACTION_TARGET" 'MINT_ADDRESS()(address)')"
 check "LpExecutor.STAKE_ADDRESS()" "$STAKE" "$(call "$LP_EXECUTOR" 'STAKE_ADDRESS()(address)')"
 check "GroupActionExecutor.ACTION_TARGET_ADDRESS()" "$ACTION_TARGET" \
@@ -234,7 +236,7 @@ first_seed="$(echo "$SEED_ACCOUNTS" | head -1)"
 check_gt "MemberNFT.balanceOf(seed[0])" "0" "$(call "$MEMBER_NFT" 'balanceOf(address)(uint256)' "$first_seed")"
 check_gt "MemberNFT.totalSupply()" "1" "$(call "$MEMBER_NFT" 'totalSupply()(uint256)')"
 check_gt "LOVE20Token.balanceOf(seed[0])" "0" "$(call "$TOKEN" 'balanceOf(address)(uint256)' "$first_seed")"
-check_gt "LOVE20Token.balanceOf(Airdrop)" "0" "$(call "$TOKEN" 'balanceOf(address)(uint256)' "$AIRDROP")"
+check_gt "LOVE20Token.balanceOf(AirdropDistributor)" "0" "$(call "$TOKEN" 'balanceOf(address)(uint256)' "$DISTRIBUTOR")"
 
 r0="$(cast call "$PAIR" 'getReserves()(uint112,uint112,uint32)' --rpc-url "$RPC_URL" | sed -n '1p' | awk '{print $1}')"
 r1="$(cast call "$PAIR" 'getReserves()(uint112,uint112,uint32)' --rpc-url "$RPC_URL" | sed -n '2p' | awk '{print $1}')"
@@ -244,11 +246,54 @@ check_gt "UniswapV2Pair LP held by Stake" "0" "$(call "$PAIR" 'balanceOf(address
 stake_shares="$(call "$STAKE" 'totalStake(address)(uint256,uint256,uint256,uint256,uint256,uint256,uint256,uint256)' "$TOKEN" | head -1)"
 check_gt "Stake.totalLiquidityShares" "0" "$stake_shares"
 
-merkle_root="$(call "$AIRDROP" 'merkleRoot()(bytes32)')"
+# --- AirdropDistributor: root, claim round, claims, shares, snapshot URI ---
+merkle_root="$(call "$DISTRIBUTOR" 'merkleRootByTokenAddress(address)(bytes32)' "$TOKEN")"
 fixture_root="$(python3 -c "import json;print(json.load(open('$SNAPSHOT_ABS'))['merkleRoot'])")"
 fixture_total="$(python3 -c "import json;print(int(json.load(open('$SNAPSHOT_ABS'))['totalShare']))")"
-check "Airdrop.merkleRoot() == fixture root" "$fixture_root" "$merkle_root"
-check "Airdrop.totalShare() == fixture totalShare" "$fixture_total" "$(call "$AIRDROP" 'totalShare()(uint256)')"
+check "AirdropDistributor.merkleRoot == params GENESIS_AIRDROP_MERKLE_ROOT" \
+    "$GENESIS_AIRDROP_MERKLE_ROOT" "$merkle_root"
+check "AirdropDistributor.merkleRoot == fixture root" "$fixture_root" "$merkle_root"
+check "AirdropDistributor.TOTAL_SHARE == fixture totalShare" \
+    "$fixture_total" "$(call "$DISTRIBUTOR" 'TOTAL_SHARE()(uint256)')"
+
+# claimableFromRound was frozen as max(phase at deploy, 1) + claim delay. Read the distributor's own
+# deployment block from the export and ask the chain what phase that block was in, instead of
+# assuming the bootstrap never crossed a phase boundary (it runs in phase 1).
+distributor_block="$(json_path contracts AirdropDistributor blockNumber)"
+phase_at_deploy="$(call "$PHASE" 'phaseAtBlock(uint256)(uint256)' "$distributor_block")"
+base_round=$(( phase_at_deploy > 0 ? phase_at_deploy : 1 ))
+expected_from_round=$(( base_round + GENESIS_AIRDROP_CLAIM_DELAY_ROUNDS ))
+check "AirdropDistributor.claimableFromRound" \
+    "$expected_from_round" "$(call "$DISTRIBUTOR" 'claimableFromRoundByTokenAddress(address)(uint256)' "$TOKEN")"
+check_gt "AirdropDistributor claim round reached by now" "$(( expected_from_round - 1 ))" "$current_phase"
+
+# The seed claims the first SEED_MEMBER_COUNT entries; shares are equal, so each payout is exactly
+# launchAmount * share / TOTAL_SHARE (balance and remaining share shrink by the same ratio).
+first_share="$(python3 -c "import json;print(json.load(open('$SNAPSHOT_ABS'))['entries'][0]['share'])")"
+expected_claim_amount="$(python3 -c "print(int('$LAUNCH_AMOUNT') * int('$first_share') // int('$TOTAL_SHARE'))")"
+check "AirdropDistributor.claimedAmount(seed[0])" "$expected_claim_amount" \
+    "$(call "$DISTRIBUTOR" 'claimedAmountByTokenAddressByClaimer(address,address)(uint256)' "$TOKEN" "$first_seed")"
+check "AirdropDistributor.isClaimed(seed[0])" "true" \
+    "$(call "$DISTRIBUTOR" 'isClaimedByTokenAddressByClaimer(address,address)(bool)' "$TOKEN" "$first_seed")"
+
+expected_claimed_share="$(python3 -c "print(int('$first_share') * int('$SEED_MEMBER_COUNT'))")"
+expected_remaining_share="$(python3 -c "print(int('$TOTAL_SHARE') - int('$expected_claimed_share'))")"
+expected_balance="$(python3 -c "print(int('$LAUNCH_AMOUNT') - int('$expected_claim_amount') * int('$SEED_MEMBER_COUNT'))")"
+check "AirdropDistributor.claimedShare" "$expected_claimed_share" \
+    "$(call "$DISTRIBUTOR" 'claimedShareByTokenAddress(address)(uint256)' "$TOKEN")"
+check "AirdropDistributor.remainingShare" "$expected_remaining_share" \
+    "$(call "$DISTRIBUTOR" 'remainingShareByTokenAddress(address)(uint256)' "$TOKEN")"
+check "LOVE20Token.balanceOf(AirdropDistributor)" "$expected_balance" \
+    "$(call "$TOKEN" 'balanceOf(address)(uint256)' "$DISTRIBUTOR")"
+
+# Snapshot URI: core@141c931 only lets a LAUNCHED token's launcher member set it; the genesis token
+# is configured with launcherMemberId 0 and updateSnapshotUri reverts NotSnapshotUriUpdater for every
+# caller (core/test/AirdropDistributor.t.sol pins this). So the on-chain value MUST be empty; the
+# intended URI lives in seed.params as SNAPSHOT_URI until core exposes a genesis path.
+check "AirdropDistributor.launcherMemberId(genesis)" "0" \
+    "$(call "$DISTRIBUTOR" 'launcherMemberIdByTokenAddress(address)(uint256)' "$TOKEN")"
+check "AirdropDistributor.snapshotUri(genesis, not registrable on core@141c931)" "" \
+    "$(call "$DISTRIBUTOR" 'snapshotUriByTokenAddress(address)(string)' "$TOKEN" | tr -d '\"')"
 
 # claimableAmount for a fixture entry that has NOT claimed (the seed only claims the first
 # SEED_MEMBER_COUNT entries), plus the unclaimed/claimed state of a seeded one.
@@ -261,10 +306,9 @@ unclaimed_proof_args=$(python3 -c "
 import json
 e=json.load(open('$SNAPSHOT_ABS'))['entries'][$UNCLAIMED_INDEX]
 print('[' + ','.join(e['proof']) + ']')")
-claimable="$(call "$AIRDROP" 'claimableAmount(address,address,uint256,bytes32[])(uint256)' \
+claimable="$(call "$DISTRIBUTOR" 'claimableAmount(address,address,uint256,bytes32[])(uint256)' \
     "$TOKEN" "$unclaimed_addr" "$unclaimed_share" "$unclaimed_proof_args")"
-check_gt "Airdrop.claimableAmount(unclaimed fixture entry)" "0" "$claimable"
-check "Airdrop.isClaimed(seed[0])" "true" "$(call "$AIRDROP" 'isClaimed(address,address)(bool)' "$TOKEN" "$first_seed")"
+check "AirdropDistributor.claimableAmount(unclaimed fixture entry)" "$expected_claim_amount" "$claimable"
 
 for account in $SEED_ACCOUNTS; do
     balance="$(cast balance "$account" --rpc-url "$RPC_URL")"
@@ -332,12 +376,19 @@ done
     echo "cast call $PAIR 'getReserves()(uint112,uint112,uint32)' --rpc-url $RPC_URL"
     echo '```'
     echo ""
-    echo "Airdrop claim example for a fixture account (unclaimed index $UNCLAIMED_INDEX):"
+    echo "AirdropDistributor claim example for a fixture account (unclaimed index $UNCLAIMED_INDEX)."
+    echo "The claim pays \`msg.sender\`, so send it from the account that owns the share:"
     echo ""
     echo '```bash'
-    echo "cast call $AIRDROP 'claimableAmount(address,address,uint256,bytes32[])(uint256)' \\"
+    echo "cast call $DISTRIBUTOR 'claimableAmount(address,address,uint256,bytes32[])(uint256)' \\"
     echo "  $TOKEN $unclaimed_addr $unclaimed_share '$unclaimed_proof_args' --rpc-url $RPC_URL"
+    echo "cast send $DISTRIBUTOR 'claim(address,uint256,bytes32[])' \\"
+    echo "  $TOKEN $unclaimed_share '$unclaimed_proof_args' --rpc-url $RPC_URL --private-key <claimant key>"
     echo '```'
+    echo ""
+    echo "Snapshot URI: seed.params declares \`SNAPSHOT_URI=$SNAPSHOT_URI\`, but the genesis token's"
+    echo "\`launcherMemberId\` is 0 and core@141c931's \`onlySnapshotUriUpdater\` rejects that id for every"
+    echo "caller, so the on-chain \`snapshotUriByTokenAddress(genesisToken)\` is empty by design."
 } >"$REPORT"
 
 say ""

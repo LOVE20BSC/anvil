@@ -43,6 +43,24 @@ LAUNCH_COUNT_THRESHOLD_RATIO=1e17
 MAX_LAUNCH_COUNT=10000
 TOKEN_SYMBOL_LENGTH=6
 
+# --- genesis AirdropDistributor (deployed by DeployCore) --------------------------------------
+# `DeployCore` constructs the distributor with these two values and configures the genesis token
+# in the constructor, so both are no longer deploy-time wiring in this repo.
+#
+# The root MUST equal the merkle root of the snapshot the frontend is served and this repo seeds
+# from (fixtures/airdrop/anvil31337_dev.json, whose root the fixture generator derives and which
+# export.py copies to export/airdrop/anvil31337_dev.json). DeployLocal asserts they agree, because
+# a mismatched root makes every claim revert InvalidProof while the chain still looks healthy.
+#
+# `core/script/network/anvil31337_dev/core.params` carries 0x05e37b…, but no snapshot with that root
+# exists in any repo; it cannot seed this chain. The value below is the fixture's actual root, which
+# is also the root in the frontend's committed public/airdrop snapshot.
+GENESIS_AIRDROP_MERKLE_ROOT=0x046a5d5357fd4da6986a88fb1e2baf3603375d2099ce9f46b9d6fbe333c6c404
+# claimableFromRound = max(phase at deployment, 1) + this value. The bootstrap deploys in phase 1,
+# so the genesis claims are accepted from round 2 onwards; script/local.sh mines the intervening
+# blocks before `make seed` runs. Must be <= AirdropDistributor.MAX_CLAIM_DELAY_ROUNDS (1000).
+GENESIS_AIRDROP_CLAIM_DELAY_ROUNDS=1
+
 # --- Mint (1e18 = 100%) ----------------------------------------------------------------------
 PROPOSAL_REWARD_MIN_VOTE_RATIO=5e16
 ROUND_REWARD_GOV_RATIO=5e14

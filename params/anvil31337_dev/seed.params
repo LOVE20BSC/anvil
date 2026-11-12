@@ -4,10 +4,16 @@
 # SEED_ACCOUNT_COUNT accounts of SEED_MNEMONIC, so "which accounts have a share" is decided in
 # accounts.params, not here. This file decides what those accounts then DO on chain.
 #
-# SEED_MEMBER_COUNT accounts claim their airdrop share and mint a MemberNFT: the frontend needs at
-# least two identities to test group chat, admin lists and proposal flows. SEED_LIQUIDITY_MEMBER_INDEX
-# is the member that additionally stakes liquidity into the root token's pair (that pair is created
-# empty by Launch._ensurePair - it has zero reserves until this step runs).
+# SEED_MEMBER_COUNT accounts claim their airdrop share (through core's AirdropDistributor) and mint
+# a MemberNFT: the frontend needs at least two identities to test group chat, admin lists and
+# proposal flows. SEED_LIQUIDITY_MEMBER_INDEX is the member that additionally stakes liquidity into
+# the root token's pair (that pair is created empty by Launch._ensurePair - it has zero reserves
+# until this step runs).
+#
+# Claim timing: the distributor records claimableFromRound = max(phase at deploy, 1) +
+# GENESIS_AIRDROP_CLAIM_DELAY_ROUNDS (= 2 on this profile). `make seed` therefore advances the chain
+# to that round first (script/local.sh mines the intervening blocks; SeedFlow re-asserts the round
+# and fails loudly if it is still too early).
 #
 # Token amounts are absolute (not shares): the root token has 18 decimals and 1e27 total supply, so
 # 2e23 community tokens + 100e18 WETH is a ~2000 token/ETH initial price, deep enough that the
@@ -24,3 +30,14 @@ SEED_LIQUIDITY_PROMISED_WAITING_PHASES=1
 # ETH handed to every seed account so a developer can send transactions from any of them without
 # leaving the frontend. 100 ETH each, out of account #0's 10,000 ETH anvil balance.
 SEED_ETH_PER_ACCOUNT=100e18
+# Snapshot URI the launcher SHOULD register on chain via
+# AirdropDistributor.updateSnapshotUri(genesisToken, SNAPSHOT_URI). It is the URL the frontend dev
+# server already serves (public/airdrop/anvil31337_dev.json).
+#
+# NOT REGISTERED TODAY: core@141c931 reserves updateSnapshotUri for LAUNCHED tokens. The genesis
+# token's launcherMemberId is 0 by construction and `onlySnapshotUriUpdater` reverts
+# NotSnapshotUriUpdater(caller, 0), so no caller can set it for the genesis token (core's own tests
+# assert this is permanent). SeedFlow keeps this value, logs that it cannot be applied, and verify.sh
+# asserts the on-chain value is still empty. Once core exposes a genesis path, the seed should call
+# updateSnapshotUri as the launcher member and this key becomes live without further changes.
+SNAPSHOT_URI=http://127.0.0.1:5180/airdrop/anvil31337_dev.json

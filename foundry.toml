@@ -2,8 +2,8 @@
 #
 # This project owns NO protocol source: every contract comes from a sibling checkout
 # (../core, ../action, ../group-chat, ../libs, ../dex) which are mounted read-only through the
-# remappings in remappings.txt. Only src/vendor/ holds a copied file (the TKM Airdrop) and only
-# out/, cache/, broadcast/, export/ and .anvil/ are written.
+# remappings in remappings.txt. There is no vendored contract any more (the airdrop is core's
+# AirdropDistributor); only out/, cache/, broadcast/, export/ and .anvil/ are written.
 #
 # The compiler settings below are pinned to the sibling repos' settings (0.8.37 / osaka / 200 runs /
 # no metadata) because the four action linked libraries are deployed by THIS project and linked into

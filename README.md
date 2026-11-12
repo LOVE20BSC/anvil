@@ -76,8 +76,8 @@ Everything else (`core/out`, `action/out`, `group-chat/out`) is only needed for 
 | 5 | fresh guard | `make fresh` | deployer nonce 0 + no Multicall3 (bootstrap also requires block 0); fails loudly on a used chain |
 | 6 | Multicall3 | `make multicall3` | `0xcA11bde05977b3631167028862bE2a173976CA11` from the upstream pre-signed tx |
 | 7 | linked libraries | `make libraries` | the 4 action libraries (CREATE at deployer nonces 0..3, addresses to `export/libraries.json`) |
-| 8 | deploy | `make deploy` | WETH, UniswapV2, Airdrop, core (7), action (4), group-chat (12) |
-| 9 | seed | `make seed` | airdrop claims, 5 MemberNFTs, liquidity + governance stake, ETH top-ups |
+| 8 | deploy | `make deploy` | WETH, UniswapV2, core (8 incl. `AirdropDistributor`), action (4), group-chat (12) |
+| 9 | seed | `make seed` | advance to the genesis claim round, airdrop claims, 5 MemberNFTs, liquidity + governance stake, ETH top-ups |
 | 10 | export | `make export` | `export/deployments/anvil31337_dev.json`, `export/abis/*.json`; nonce sequence re-checked |
 | 11 | verify | `make verify` | `cast` assertions → `export/VERIFIED.md`, non-zero exit on any failure |
 | 12 | interval mining | `anvil_setIntervalMining 1` | chain switches to `--block-time 1` for the frontend/phase clock |
@@ -93,15 +93,15 @@ contracts are simply orphaned — fine on a throwaway chain, and the address boo
 
 ---
 
-## 3. Deployment order (and the one place the brief had to be corrected)
+## 3. Deployment order
 
 ```
 Multicall3                      canonical address, upstream signed tx
 WETH9Configurable               dex/script/WETH9Configurable.sol, source compiled by this repo
 UniswapV2Factory                dex/build artifact (not recompiled), feeToSetter = 0 (fee locked)
 UniswapV2Router02               dex/build artifact (not recompiled), (factory, WETH)
-Airdrop                         ← MUST be before core: it is Launch's distributor
-Phase
+Phase                           ← start of DeployCore._deployContracts()
+AirdropDistributor              deployed BY DeployCore, configured with the genesis token + root
 Launch                          creates LOVE20Token and its (empty) Uniswap pair
 MemberNFT
 Stake
@@ -126,20 +126,25 @@ TokenActionGovManager
 TokenActionMainManager
 ```
 
-**Why the Airdrop is not last.** The brief lists Airdrop as step 6 (after group-chat), but
-`Launch`'s constructor takes `distributor` and the `LOVE20Token` constructor mints the whole
-`LAUNCH_AMOUNT` to it. There is no setter. Deploying the Airdrop after `Launch` would leave the
-genesis supply in the wrong hands forever, so the Airdrop is deployed immediately before `Launch`
-and its address is passed as `distributor` programmatically (never from a params file). This is the
-only ordering change; it is also asserted after deployment
-(`LOVE20Token.balanceOf(airdrop) == LAUNCH_AMOUNT`, see `DeployLocal._validateCore`).
+**The AirdropDistributor is part of core, not of this repo.** `DeployCore._deployContracts` deploys
+it immediately after `Phase` and before `Launch`, because the `LOVE20Token` constructor mints the
+whole `LAUNCH_AMOUNT` to it and there is no setter. `DeployLocal` no longer deploys any airdrop
+contract and no longer passes a `distributor` address: `CoreConfig` carries only
+`genesisMerkleRoot` + `genesisClaimDelayRounds`, and `DeploymentAddresses.airdropDistributor` is
+read back from the core deploy body.
 
 **Core ordering is the sibling repo's own.** `DeployLocal` inherits `DeployCore` from
 `core/script/deploy/DeployCore.s.sol` and calls its `_deployContracts`, so the CREATE nonce
-predictions in `DeployCore._predictAddresses()` (`MemberNFT = nonce+2`, `Vote = nonce+5`,
-`Mint = nonce+6`) are literally the same code path, including the `require`s that fail loudly if a
-prediction does not match. `_predictor()` is overridden to read `DEPLOYER_ADDRESS` from the
-environment instead of `msg.sender`, which cannot drift from the broadcast account.
+predictions in `DeployCore._predictAddresses()` (`AirdropDistributor = nonce+1`, `Launch = nonce+2`,
+`MemberNFT = nonce+3`, `Vote = nonce+6`, `Mint = nonce+7`) are literally the same code path,
+including the `require`s that fail loudly if a prediction does not match. `_predictor()` is
+overridden to read `DEPLOYER_ADDRESS` from the environment instead of `msg.sender`, which cannot
+drift from the broadcast account.
+
+Because the old vendored Airdrop occupied deployer nonce 7 and core's new order puts `Phase` there,
+**`PHASE_ADDRESS` is the one pre-existing address that moves**; everything from `Launch` onwards
+(and the genesis token, created by `Launch` at its nonce 1) keeps its address. Airdrop 7 → Phase,
+Phase 8 → AirdropDistributor.
 
 ---
 
@@ -159,9 +164,9 @@ starts at nonce 0 and the transaction order is fixed.
 | `UNISWAP_V2_FACTORY_ADDRESS` | UniswapV2Factory | `0x5FC8d32690cc91D4c39d9d3abcBD16989F875707` | 7 |
 | `UNISWAP_V2_ROUTER02_ADDRESS` | UniswapV2Router02 | `0x0165878A594ca255338adfa4d48449f69242Eb8F` | 8 |
 | `UNISWAP_V2_PAIR_ADDRESS` | UniswapV2Pair | `0x3FC12a5abAe69C8Eee58C37cEDC266751507620D` | 11 |
-| `AIRDROP_ADDRESS` | Airdrop | `0xa513E6E4b8f2a923D98304ec87F64353C4D5C853` | 9 |
+| `AIRDROP_DISTRIBUTOR_ADDRESS` | AirdropDistributor | `0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6` | 10 |
 | `LOVE20_TOKEN_ADDRESS` | LOVE20Token | `0x8aCd85898458400f7Db866d53FCFF6f0D49741FF` | 11 |
-| `PHASE_ADDRESS` | Phase | `0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6` | 10 |
+| `PHASE_ADDRESS` | Phase | `0xa513E6E4b8f2a923D98304ec87F64353C4D5C853` | 9 |
 | `LAUNCH_ADDRESS` | Launch | `0x8A791620dd6260079BF849Dc5567aDC3F2FdC318` | 11 |
 | `MEMBER_NFT_ADDRESS` | MemberNFT | `0x610178dA211FEF7D417bC0e6FeD39F05609AD788` | 12 |
 | `STAKE_ADDRESS` | Stake | `0xB7f8BC63BbcaD18155201308C8f3540b07f84F5e` | 13 |
@@ -233,7 +238,11 @@ export/
   "addresses": { "LAUNCH_ADDRESS": "0x…", … },      // same keys as params files
   "libraries": { "GroupActionJoin": "0x…", … },
   "uniswapV2": { "factory": "0x…", "router02": "0x…", "weth": "0x…", "pair": "0x…", "feeTo": "0x0000000000000000000000000000000000000000", "pairInitCodeHash": "0x96e8…" },
-  "airdrop": { "address": "0x…", "merkleRoot": "0x…", "totalShare": "1000000000000000000", "snapshotFile": "…" },
+  "airdropDistributor": {
+    "address": "0x…", "token": "0x…", "merkleRoot": "0x…", "totalShare": "1000000000000000000",
+    "claimDelayRounds": 1, "claimableFromRound": 2, "snapshotUri": "",
+    "intendedSnapshotUri": "http://127.0.0.1:5180/airdrop/anvil31337_dev.json", "snapshotFile": "…"
+  },
   "params": { "tokenName": "TestLOVE20@TestWETH", "phaseOriginPhaseBlocks": 120, "groupActionSplits": ["…"] }
 }
 ```
@@ -250,9 +259,10 @@ the chain value and the exported value. Missing inputs fail the export instead o
 override starts the chain elsewhere.
 
 ABIs exported: `MemberNFT`, `LOVE20Token`, `Launch`, `Stake`, `Submit`, `Vote`, `Mint`, `Phase`,
-`ActionTarget`, `LpExecutor`, `GroupActionExecutor`, `GroupServiceExecutor`, `GroupChat`, `Airdrop`,
-`UniswapV2Router02`, `UniswapV2Factory`, `UniswapV2Pair`, `Multicall3`, plus `WETH9` (the UI needs
-`deposit()`/`withdraw()`).
+`AirdropDistributor` (from `core/out/AirdropDistributor.sol/`), `ActionTarget`, `LpExecutor`,
+`GroupActionExecutor`, `GroupServiceExecutor`, `GroupChat`, `UniswapV2Router02`,
+`UniswapV2Factory`, `UniswapV2Pair`, `Multicall3`, plus `WETH9` (the UI needs
+`deposit()`/`withdraw()`). The old `Airdrop.json` is gone.
 
 ABI provenance: each file is the top-level `abi` of `core|action|group-chat/out/<File>.sol/<Contract>.json`
 or `dex/build/...`. Those directories are **read**; the export script never builds in them. If one is
@@ -269,7 +279,8 @@ transactions. No `deal`, no `anvil_setStorageAt`, no state forgery anywhere in t
 | What | How | Result on the verified run |
 |---|---|---|
 | ETH | account #0 tops every seeded account up to `SEED_ETH_PER_ACCOUNT` (100 ETH) | 5 accounts ≥ 100 ETH (anvil already funds them, so usually a no-op) |
-| Airdrop claim | each of the first `SEED_MEMBER_COUNT` (5) accounts calls `claim(token, self, share, proof)` with its own key | 5 × 1e26 tokens claimed; accounts 5–9 left unclaimed for the **claim UI** |
+| Claim round | `script/local.sh` mines up to `claimableFromRound` (= max(phase at deploy,1) + `GENESIS_AIRDROP_CLAIM_DELAY_ROUNDS` = **2**) before seeding; `SeedFlow` re-asserts it | bootstrap ends in **phase 2** (block 121), not phase 1 |
+| Airdrop claim | each of the first `SEED_MEMBER_COUNT` (5) accounts calls `AirdropDistributor.claim(token, share, proof)` with its own key (`msg.sender` is the claimer) | 5 × 1e26 tokens claimed; accounts 5–9 left unclaimed for the **claim UI** |
 | MemberNFT | each of the 5 claims, then `approve` + `mint("Testdev-member-<i>")` (the name is stored verbatim) | 5 identities, ids 1–5, 9e20 burned per mint |
 | Liquidity + governance | member 0 wraps 100 ETH → `WETH.deposit`, approves `Stake`, calls `Stake.stakeLiquidity(token, 2e23, 1e20, 5e16, 1, 1)` | pair reserves **200 000 token / 100 WETH** (price 2000 token/ETH), 4.472135954999579391818e21 LP minted to `Stake`, equal `govVotes` |
 
@@ -280,7 +291,19 @@ at once: it gives the pair its reserves, and it gives a member actual governance
 manual step. The staker is member id 1 (anvil account #0).
 
 The airdrop fixture covers **10 accounts** (anvil indices 0–9), **1e17 share each**, total 1e18, so
-the airdrop page has both claimed (0–4) and claimable (5–9) state to exercise.
+the airdrop page has both claimed (0–4) and claimable (5–9) state to exercise. Claims are paid from
+the distributor's `LAUNCH_AMOUNT` balance at `balanceOf(distributor) * share / remainingShare`; with
+equal shares each payout is exactly `1e26` and the distributor keeps `5e26` after the seed.
+
+**Snapshot URI — not registered for the genesis token.** `seed.params` declares
+`SNAPSHOT_URI=http://127.0.0.1:5180/airdrop/anvil31337_dev.json` (the file the frontend dev server
+serves from `public/airdrop/`), but core commit `141c931` only lets the owner of a **launched**
+token's `launcherMemberId` call `updateSnapshotUri`. The genesis token is configured in the
+distributor's constructor with `launcherMemberId = 0`, and `onlySnapshotUriUpdater` reverts
+`NotSnapshotUriUpdater(caller, 0)` for every caller; core's own tests pin this as permanent
+(`core/test/AirdropDistributor.t.sol`). The seed therefore logs the intended URI and asserts the
+on-chain value is empty; `export/deployments/*.json` carries it as `intendedSnapshotUri`. This is a
+core-side gap, not an anvil workaround.
 
 ---
 
@@ -332,34 +355,46 @@ Deliberately **not** done:
 * No `make -C ../dex build`, no `forge build` inside any sibling — those write there. `dex/build` is
   a precondition; if it is missing, preflight prints the command to run yourself.
 * No `dex/script/deploy/one_click_deploy.sh` (it rewrites `dex/script/network/...`).
-* No copies of sibling sources except the vendored TKM `Airdrop` (see §9).
+* No copies of sibling sources — the old vendored `Airdrop` was deleted; the airdrop now comes from
+  core (see §9).
 * No keystore, no `.account` file: the deploy key is derived from the anvil mnemonic in
   `params/anvil31337_dev/accounts.params`.
 
 ---
 
-## 9. Airdrop
+## 9. Airdrop (core `AirdropDistributor`)
 
-`src/vendor/Airdrop.sol` is a verbatim copy of `LOVE20TKM/burn/src/Airdrop.sol` @
-`b32bb821d2131c5aef09aa661f9681ddf1741fcf`, with a header recording the origin. Two mechanical edits
-only: the pragma (`=0.8.17` → `=0.8.37`) and the OpenZeppelin 4.x `security/ReentrancyGuard.sol` →
-5.x `utils/ReentrancyGuard.sol` import (the siblings vendor OZ 5.6.1). `IAirdrop` is vendored next
-to it.
+The airdrop is now protocol code: `core/src/distributor/AirdropDistributor.sol` at `core@141c931`.
+`DeployCore` deploys it itself (it is not passed in as a `distributor` address any more) and
+`DeployLocal` reads `airdropDistributor` back from the core deploy body. There is **no vendored
+airdrop** in this repo: `src/vendor/Airdrop.sol` / `IAirdrop.sol` were deleted, along with the
+constructor provenance parameters they needed.
 
-* **`onTokenLaunched` is not implemented** by this contract (checked: it does not inherit
-  `ILaunchDistributor`). `DeployLocal._validateCore` asserts it at runtime with a `staticcall` that
-  **must** fail, so the docs cannot silently go stale. Consequence: child-token launches must use
-  `DistributorMode.NoCallback` on this chain. The first token does not need the callback — `Launch`
-  mints the genesis supply to the Airdrop in the `LOVE20Token` constructor.
-* Claim math is the canonical one: `amount = balanceOf(airdrop) * share / remainingShare(token)`.
+* Genesis configuration comes from `params/anvil31337_dev/core.params`:
+  `GENESIS_AIRDROP_MERKLE_ROOT` and `GENESIS_AIRDROP_CLAIM_DELAY_ROUNDS`. The root must match the
+  snapshot fixture (and therefore the frontend's `public/airdrop` copy); `DeployLocal` refuses to
+  broadcast if the params file and the fixture disagree.
+* `claimableFromRound = max(phase at deployment, 1) + claimDelayRounds`. This profile deploys in
+  phase 1 with a delay of 1, so claims open in **phase 2**. `script/local.sh seed` mines the
+  intervening blocks (anvil-only; it happens after the deploy broadcast, so exported addresses and
+  block numbers are unchanged) and `SeedFlow` asserts the round before claiming.
+* Claim interface: `claim(tokenAddress, share, proof)` — the distributor pays `msg.sender`, there is
+  no account argument. `claimableAmount(tokenAddress, claimer, share, proof)` quotes the payout, and
+  `claimedAmountByTokenAddressByClaimer` / `isClaimedByTokenAddressByClaimer` report past claims.
+* Claim math is unchanged in shape: `amount = balanceOf(distributor) * share / remainingShare(token)`.
   Shares are relative, never absolute amounts.
+* The distributor implements `ILaunchDistributor.onTokenLaunched`, so child-token launches **can**
+  use it as a callback distributor (the old `NoCallback` limitation is gone).
 * Fixture (`fixtures/airdrop/anvil31337_dev.json`), generated by `script/gen_airdrop_fixture.py`:
   double-hashed keccak leaves `keccak(keccak(abi.encode(account, share)))`, sorted-pair internal
   nodes, unpaired last node promoted, every proof re-verified before writing. Numbers are emitted as
-  decimal **strings** (canonical burn format, 1e18 is not JS-safe as a number).
-* Provenance is synthetic and labelled as such: `sourceChainId 31337`, `sourceBlockNumber 1`,
-  `sourceBurnAddress 0x…C0FFEE01` — this chain has no Burn deployment, so there is no real burn
-  activity to snapshot.
+  decimal **strings** (1e18 is not JS-safe as a number).
+* Provenance fields in the fixture (`sourceChainId 31337`, … `0x…C0FFEE01`) are synthetic and
+  labelled as such: they feed the fixture format only — the new distributor has no provenance
+  immutables, and this chain has no Burn deployment.
+* **Snapshot URI:** see §6. `seed.params` carries `SNAPSHOT_URI`, but core refuses
+  `updateSnapshotUri` for the genesis token (`launcherMemberId == 0`), so the on-chain URI is empty
+  on this profile. `launched` tokens can register one.
 
 ---
 
@@ -375,19 +410,22 @@ Headline values from the verified run:
 |---|---|
 | chain id | `31337` |
 | code present | all 34 exported addresses |
-| `Phase.currentPhase()` | `1` on the committed run (the chain mines every second, so it advances afterwards) |
+| `Phase.currentPhase()` | `2` on the committed run (the seed advanced to the genesis claim round; the chain mines every second afterwards) |
 | `Phase.ORIGIN_PHASE_BLOCKS()` | `120` (= 2 min per phase at `--block-time 1`) |
 | `MemberNFT.totalSupply()` | `5` |
 | `MemberNFT.balanceOf(seed[0])` | `1` |
 | `LOVE20Token.balanceOf(seed[0])` | `99799100000000000000000000` |
-| `LOVE20Token.balanceOf(airdrop)` | `500000000000000000000000000` |
+| `LOVE20Token.balanceOf(AirdropDistributor)` | `500000000000000000000000000` |
 | pair reserves | `200000000000000000000000` token / `100000000000000000000` WETH |
 | LP held by `Stake` | `4472135954999579391818` |
 | `Stake.totalLiquidityShares` | `4472135954999579391818` |
-| `Airdrop.merkleRoot()` | `0x046a5d5357fd4da6986a88fb1e2baf3603375d2099ce9f46b9d6fbe333c6c404` (= fixture) |
-| `Airdrop.totalShare()` | `1000000000000000000` (= fixture) |
-| `Airdrop.claimableAmount(unclaimed fixture entry)` | `100000000000000000000000000` |
-| `Airdrop.isClaimed(seed[0])` | `true` |
+| `AirdropDistributor.merkleRootByTokenAddress(genesis)` | `0x046a5d5357fd4da6986a88fb1e2baf3603375d2099ce9f46b9d6fbe333c6c404` (= params = fixture) |
+| `AirdropDistributor.TOTAL_SHARE()` | `1000000000000000000` (= fixture) |
+| `AirdropDistributor.claimableFromRoundByTokenAddress(genesis)` | `2` |
+| `AirdropDistributor.claimedAmountByTokenAddressByClaimer(genesis, seed[0])` | `100000000000000000000000000` |
+| `AirdropDistributor.isClaimedByTokenAddressByClaimer(genesis, seed[0])` | `true` |
+| `AirdropDistributor.claimedShare / remainingShare` | `500000000000000000` / `500000000000000000` |
+| `AirdropDistributor.snapshotUriByTokenAddress(genesis)` | `""` (core refuses genesis URI updates, §9) |
 | ETH balance of each seeded account | ≥ `100000000000000000000` wei |
 | `Multicall3.getBlockNumber()` | > 0 |
 
@@ -465,8 +503,11 @@ ADR-0004 §6); it never hand-edits the address book. The deployer nonce is never
 1. **No real burn-derived snapshot.** The local chain has no `Burn` deployment, so the airdrop
    snapshot is synthetic (10 anvil accounts, equal shares, fake non-zero provenance). Shape and
    hashing match the canonical generator exactly, so the claim UI is exercised for real.
-2. **Airdrop has no `onTokenLaunched`.** Child-token launches must use `NoCallback` mode on this
-   chain (see §9).
+2. **Genesis snapshot URI cannot be registered.** `AirdropDistributor.updateSnapshotUri` is limited
+   to the owner of a launched token's `launcherMemberId`; the genesis token's id is 0, which the
+   contract rejects for every caller (core commit `141c931`). `SNAPSHOT_URI` is therefore documented
+   in `seed.params` and exported as `intendedSnapshotUri`, while the on-chain value is empty (see
+   §6/§9). Launched tokens can register one normally.
 3. **Address-determinism is per fresh chain.** Everything is plain `CREATE` from anvil account #0.
    `make bootstrap` asserts a fresh chain (block 0, nonce 0, no Multicall3) and refuses to reuse one,
    so a clean run is reproducible. Re-running `make deploy` manually on a used chain gives new
@@ -484,10 +525,18 @@ ADR-0004 §6); it never hand-edits the address book. The deployer nonce is never
 
 ## Blocked
 
-**Nothing is blocked.** Every step of the brief runs end to end. One item is a deliberate,
-documented deviation rather than a blocker: the **Airdrop is deployed before core** instead of last
-(§3 — `Launch`'s `distributor` is a constructor argument and the genesis supply is minted inside
-it). No input is missing; `make bootstrap` ships 8545 as the default.
+**One item is blocked in core, not in anvil:** registering `SNAPSHOT_URI` for the **genesis** token.
+`AirdropDistributor`'s constructor configures the genesis airdrop with `launcherMemberId = 0`
+(`core/src/distributor/AirdropDistributor.sol`, constructor `_configure(..., 0)`), and
+`onlySnapshotUriUpdater` reverts `NotSnapshotUriUpdater(caller, 0)` for that id for every caller
+(same file, modifier at the top; core's `test/AirdropDistributor.t.sol` asserts it is permanent).
+There is no setter and no Launch-side path. Anvil does everything it can: it carries the intended URI
+in `seed.params`, tries nothing that can only revert, logs the condition, verifies the on-chain value
+is empty, and exports `intendedSnapshotUri`. A core fix would be a genesis launch-time URI parameter
+or allowing `launcherMemberId == 0` to be updated by a designated launcher.
+
+Everything else runs end to end. `make bootstrap` ships 8545 as the default and the e2e chain can be
+bootstrapped on 8555.
 
 ---
 
@@ -504,21 +553,20 @@ anvil/
 │   ├── accounts.params          anvil mnemonic, deploy account index, seed account range
 │   ├── dex.params               WETH name/symbol, feeToSetter lock
 │   ├── multicall3.params        canonical address, upstream signed tx + sha256, funding
-│   ├── airdrop.params           snapshot path + provenance to assert
-│   ├── core.params              token/phase/mint/submit/stake values
+│   ├── airdrop.params           snapshot path + total share + synthetic fixture provenance
+│   ├── core.params              token/phase/mint/submit/stake + genesis airdrop root/delay
 │   ├── action.params            GROUP_ACTION_SPLITS (+ note: libraries are link-time)
 │   ├── group-chat.params        rounds/admins/ban thresholds/plugin slots
-│   └── seed.params              how many members, how much liquidity, how much ETH
+│   └── seed.params              how many members, liquidity, ETH, intended SNAPSHOT_URI
 ├── script/
 │   ├── local.sh                 orchestrator (preflight|fixture|anvil|stop|multicall3|libraries|deploy|seed|export|verify|build|clean|bootstrap)
 │   ├── DeployLibraries.s.sol    deploys the 4 link targets first
-│   ├── DeployLocal.s.sol        WETH + UniswapV2 + Airdrop + core + action + group-chat
-│   ├── SeedFlow.s.sol           claims, MemberNFTs, liquidity via Stake, ETH top-ups
+│   ├── DeployLocal.s.sol        WETH + UniswapV2 + core (incl. AirdropDistributor) + action + group-chat
+│   ├── SeedFlow.s.sol           round advance, claims, MemberNFTs, liquidity via Stake, ETH top-ups
 │   ├── gen_airdrop_fixture.py   merkle tree + proofs + self-verification
 │   ├── export.py                deployment JSON + ABIs + snapshot copy
 │   ├── verify.sh                cast assertions -> export/VERIFIED.md
 │   └── lib/params.sh            .params loader (lexical 1e18 expansion, required-key asserts)
-├── src/vendor/                  Airdrop.sol + IAirdrop.sol (the only vendored sources)
 ├── fixtures/
 │   ├── airdrop/anvil31337_dev.json          the snapshot (10 accounts, proofs)
 │   └── multicall3/multicall3_signed_tx.hex  upstream pre-signed deployment tx
@@ -543,5 +591,6 @@ anvil/
 ## 15. Credits
 
 Protocol sources: the sibling repositories (`core`, `action`, `group-chat`, `libs`, `dex`) — compiled
-read-only, never modified. Airdrop: `LOVE20TKM/burn`. Multicall3: `mds1/multicall` (upstream
+read-only, never modified. Airdrop: core's `AirdropDistributor` (snapshot format follows
+`LOVE20TKM/burn`). Multicall3: `mds1/multicall` (upstream
 pre-signed deployment transaction). UniswapV2: `Uniswap/v2-core` + `v2-periphery` via `dex/build`.

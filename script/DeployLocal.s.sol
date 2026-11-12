@@ -49,9 +49,6 @@ import {IGroupMemberScope} from "@group-chat/interfaces/sources/scope/IGroupMemb
 import {ITokenActionScopeManagerBase} from "@group-chat/interfaces/managers/ITokenActionScopeManagerBase.sol";
 import {ITokenScopeManagerBase} from "@group-chat/interfaces/managers/ITokenScopeManagerBase.sol";
 
-// The airdrop is the only vendored file in this repo (LOVE20TKM/burn, see the header in the file).
-import {Airdrop} from "../src/vendor/Airdrop.sol";
-
 /// @dev Minimal views of the UniswapV2 contracts read from ../dex/build. The published interfaces
 ///      live under the dex repo's own uniswap-v2 remappings, which are not mounted here; the three
 ///      functions below are the whole surface this script needs.
@@ -85,18 +82,16 @@ interface IWETHView {
 ///   B. WETH                  - root parent token; Launch reads it from Router.WETH().
 ///   C. UniswapV2Factory      - feeToSetter = 0 (the org's protocol-fee lock).
 ///   D. UniswapV2Router02     - needs B and C.
-///   E. Airdrop               - MUST come before core: it is Launch's `distributor`, and the
-///                              LOVE20Token constructor mints the whole genesis supply to it. The
-///                              task order lists it last, which cannot work - a Launch deployed
-///                              before its distributor would mint the genesis supply elsewhere and
-///                              there is no setter. See README "Deployment order".
-///   F. core                  - Phase -> Launch(token) -> MemberNFT -> Stake -> Submit -> Vote -> Mint,
-///                              exactly as DeployCore.s.sol, including its CREATE-address prediction
-///                              for MemberNFT/Vote/Mint (nonce +2 / +5 / +6).
-///   G. action                - ActionTarget -> LpExecutor -> GroupActionExecutor -> GroupServiceExecutor.
+///   E. core                  - Phase -> AirdropDistributor -> Launch(token) -> MemberNFT -> Stake
+///                              -> Submit -> Vote -> Mint, exactly as DeployCore.s.sol. The
+///                              distributor is deployed BY the core body (it is the genesis token's
+///                              distributor and the LOVE20Token constructor mints the whole genesis
+///                              supply to it), including its CREATE-address prediction for
+///                              AirdropDistributor/Launch/MemberNFT/Vote/Mint (nonce +1/+2/+3/+6/+7).
+///   F. action                - ActionTarget -> LpExecutor -> GroupActionExecutor -> GroupServiceExecutor.
 ///                              The two executors are linked against the four libraries deployed by
 ///                              DeployLibraries.s.sol (see that file for why it is a separate run).
-///   H. group-chat            - GroupAdmin -> GroupChat -> ban/scope sources -> 4 managers.
+///   G. group-chat            - GroupAdmin -> GroupChat -> ban/scope sources -> 4 managers.
 ///
 /// Everything after A is broadcast from one account (params: DEPLOY_ACCOUNT_INDEX, anvil #0) in a
 /// single `vm.startBroadcast()`, so the CREATE nonces are exactly the sequence above.
@@ -107,7 +102,8 @@ interface IWETHView {
 contract DeployLocal is DeployCore {
     // ---- dex artifact integrity (identical to ../dex/script/deploy/DeployUniswapV2.s.sol) ----
     bytes32 internal constant PAIR_INIT_CODE_HASH = 0x96e8ac4277198ff8b6f785478aa9a39f403cb768dd02cbee326c3e7da348845f;
-    bytes32 internal constant FACTORY_CREATION_HASH = 0x8716c49c3c982e1d8b8beaab0a95d88cc5ec06681dded0f951fa1f3059c1e32a;
+    bytes32 internal constant FACTORY_CREATION_HASH =
+        0x8716c49c3c982e1d8b8beaab0a95d88cc5ec06681dded0f951fa1f3059c1e32a;
     bytes32 internal constant ROUTER_CREATION_HASH = 0xdcc6e896a61e7aa6adbaad7c377d2f14c32c7ded40e258ea079932d43678295b;
 
     // The .siblings/ symlink is the same directory as ../dex; it is used because foundry.toml declares
@@ -128,7 +124,7 @@ contract DeployLocal is DeployCore {
         address factory;
         address router;
         address multicall3;
-        address airdrop;
+        address airdropDistributor;
         address token;
         address phase;
         address launch;
@@ -163,12 +159,10 @@ contract DeployLocal is DeployCore {
         string wethSymbol;
         address feeToSetter;
         address deployer;
-        // airdrop provenance + fixture
-        uint256 sourceChainId;
-        uint256 sourceBlockNumber;
-        address sourceBurnAddress;
-        uint256 airdropTotalShare;
-        bytes32 merkleRoot;
+        // genesis airdrop: contract configuration (core.params) + the snapshot it must agree with
+        bytes32 genesisMerkleRoot;
+        uint256 genesisClaimDelayRounds;
+        uint256 totalShare;
         // action / group-chat
         uint256[] splits;
         uint256 actionRecentRounds;
@@ -185,9 +179,9 @@ contract DeployLocal is DeployCore {
     function runLocal() external returns (Deployed memory deployed) {
         Params memory params = _loadParams();
         // Only the parameters that do not depend on a deployment can be checked before broadcasting:
-        // a wrong chain id, a missing Multicall3, an empty split list or a mismatched airdrop fixture
-        // must not cost a transaction. Everything that needs a deployed address (factory, router,
-        // distributor) is validated as soon as that address exists - still before the contract that
+        // a wrong chain id, a missing Multicall3, an empty split list or a mismatched airdrop
+        // snapshot must not cost a transaction. Everything that needs a deployed address (factory,
+        // router) is validated as soon as that address exists - still before the contract that
         // consumes it is created.
         require(block.chainid == params.chainId, "Chain ID mismatch");
         require(params.deployer != address(0), "Deployer is zero");
@@ -206,34 +200,21 @@ contract DeployLocal is DeployCore {
 
         deployed.factory = _deployArtifact(FACTORY_ARTIFACT, abi.encode(params.feeToSetter), FACTORY_CREATION_HASH);
         console2.log("UniswapV2Factory  ", deployed.factory);
-        deployed.router = _deployArtifact(
-            ROUTER_ARTIFACT, abi.encode(deployed.factory, deployed.weth), ROUTER_CREATION_HASH
-        );
+        deployed.router =
+            _deployArtifact(ROUTER_ARTIFACT, abi.encode(deployed.factory, deployed.weth), ROUTER_CREATION_HASH);
         console2.log("UniswapV2Router02 ", deployed.router);
 
-        // ---- E: Airdrop (Launch distributor) ----
-        deployed.airdrop = address(
-            new Airdrop(
-                params.sourceChainId,
-                params.sourceBlockNumber,
-                params.sourceBurnAddress,
-                params.merkleRoot,
-                params.airdropTotalShare
-            )
-        );
-        require(deployed.airdrop.code.length != 0, "Airdrop deployment failed");
-        console2.log("Airdrop           ", deployed.airdrop);
-
-        // ---- F: core, through the org's own deploy body ----
+        // ---- E: core, through the org's own deploy body ----
         // Every constructor argument of the core contracts now exists, so DeployCore's own
-        // validation (chain id, all scalars, factory/router wiring, non-zero distributor) runs here -
-        // still before the first core contract is created.
+        // validation (chain id, all scalars, factory/router wiring, genesis airdrop config) runs
+        // here - still before the first core contract is created. DeployCore also deploys the
+        // AirdropDistributor itself (nonce +1) before Launch, exactly as its own script does.
         coreConfig.factory = deployed.factory;
         coreConfig.router = deployed.router;
-        coreConfig.distributor = deployed.airdrop;
         _validateConfig(coreConfig);
         DeployCore.DeploymentAddresses memory core = _deployCore(coreConfig);
         deployed.token = core.token;
+        deployed.airdropDistributor = core.airdropDistributor;
         deployed.phase = core.phase;
         deployed.launch = core.launch;
         deployed.memberNFT = core.memberNFT;
@@ -262,9 +243,7 @@ contract DeployLocal is DeployCore {
         deployed.adminBanSource = address(new AdminBanSource(deployed.groupChatBanList));
         console2.log("AdminBanSource    ", deployed.adminBanSource);
         deployed.govVotedBanSource = address(
-            new GovVotedBanSource(
-                deployed.memberNFT, params.minSupportToOpposeMultiplier, params.banThresholdRatio
-            )
+            new GovVotedBanSource(deployed.memberNFT, params.minSupportToOpposeMultiplier, params.banThresholdRatio)
         );
         console2.log("GovVotedBanSource ", deployed.govVotedBanSource);
         deployed.groupMember = address(new GroupMember(deployed.groupAdmin));
@@ -341,25 +320,26 @@ contract DeployLocal is DeployCore {
         params.feeToSetter = vm.envAddress("FACTORY_FEE_TO_SETTER");
         params.deployer = vm.envAddress("DEPLOYER_ADDRESS");
 
-        params.sourceChainId = vm.envUint("SOURCE_CHAIN_ID");
-        params.sourceBlockNumber = vm.envUint("SOURCE_BLOCK_NUMBER");
-        params.sourceBurnAddress = vm.envAddress("SOURCE_BURN_ADDRESS");
-        params.airdropTotalShare = vm.envUint("TOTAL_SHARE");
+        // AirdropDistributor configuration, passed straight through to DeployCore.CoreConfig.
+        params.genesisMerkleRoot = vm.envBytes32("GENESIS_AIRDROP_MERKLE_ROOT");
+        params.genesisClaimDelayRounds = vm.envUint("GENESIS_AIRDROP_CLAIM_DELAY_ROUNDS");
+        params.totalShare = vm.envUint("TOTAL_SHARE");
 
         string memory snapshot = vm.readFile(vm.envString("AIRDROP_SNAPSHOT_FILE"));
         // The fixture stores numbers as decimal strings (canonical burn snapshot format), so they are
         // read as strings and parsed: JSON numbers would lose precision in a JS consumer.
-        params.merkleRoot = vm.parseBytes32(vm.parseJsonString(snapshot, ".merkleRoot"));
+        bytes32 snapshotMerkleRoot = vm.parseBytes32(vm.parseJsonString(snapshot, ".merkleRoot"));
         uint256 snapshotTotalShare = vm.parseUint(vm.parseJsonString(snapshot, ".totalShare"));
-        uint256 snapshotChainId = vm.parseUint(vm.parseJsonString(snapshot, ".sourceChainId"));
-        uint256 snapshotBlock = vm.parseUint(vm.parseJsonString(snapshot, ".sourceBlockNumber"));
-        address snapshotBurn = vm.parseJsonAddress(snapshot, ".sourceBurnAddress");
-        require(params.merkleRoot != bytes32(0), "Airdrop merkle root is zero");
-        require(snapshotTotalShare == params.airdropTotalShare, "TOTAL_SHARE disagrees with the snapshot");
-        // Provenance is inert on chain but baked in as immutables; keep the two files in sync.
-        require(snapshotChainId == params.sourceChainId, "SOURCE_CHAIN_ID disagrees with the snapshot");
-        require(snapshotBlock == params.sourceBlockNumber, "SOURCE_BLOCK_NUMBER disagrees with the snapshot");
-        require(snapshotBurn == params.sourceBurnAddress, "SOURCE_BURN_ADDRESS disagrees with the snapshot");
+        require(params.genesisMerkleRoot != bytes32(0), "GENESIS_AIRDROP_MERKLE_ROOT is zero");
+        // One root feeds the contract AND the proofs SeedFlow/frontend use: if the params file and
+        // the snapshot disagree, every claim reverts InvalidProof. Fail before broadcasting instead.
+        require(
+            snapshotMerkleRoot == params.genesisMerkleRoot,
+            "GENESIS_AIRDROP_MERKLE_ROOT disagrees with the snapshot fixture"
+        );
+        require(snapshotTotalShare == params.totalShare, "TOTAL_SHARE disagrees with the snapshot");
+        // AirdropDistributor.TOTAL_SHARE is a compile-time constant (1e18); the fixture must match it.
+        require(params.totalShare == 1e18, "TOTAL_SHARE must equal AirdropDistributor.TOTAL_SHARE (1e18)");
 
         params.splits = _envUintArray("GROUP_ACTION_SPLITS");
         params.actionRecentRounds = vm.envUint("GROUP_CHAT_ACTION_RECENT_ROUNDS");
@@ -404,12 +384,14 @@ contract DeployLocal is DeployCore {
 
     function _loadCoreConfig(Params memory params) internal view returns (DeployCore.CoreConfig memory config) {
         config.chainId = params.chainId;
-        // Filled in from the deployment itself: these three addresses do not exist yet when the
+        // Filled in from the deployment itself: these two addresses do not exist yet when the
         // scalar parameters are read, and reading them from a params file would be exactly the
-        // stale-address trap the org's committed address files keep falling into.
+        // stale-address trap the org's committed address files keep falling into. The genesis
+        // airdrop values do come from params (they are not deployment-derived).
         config.factory = address(0);
         config.router = address(0);
-        config.distributor = address(0);
+        config.genesisMerkleRoot = params.genesisMerkleRoot;
+        config.genesisClaimDelayRounds = params.genesisClaimDelayRounds;
         config.tokenName = vm.envString("TOKEN_NAME");
         config.tokenSymbol = vm.envString("TOKEN_SYMBOL");
         config.memberBaseDivisor = vm.envUint("MEMBER_BASE_DIVISOR");
@@ -509,6 +491,7 @@ contract DeployLocal is DeployCore {
         // DeployCore's own end-to-end validation (every binding, token supply, distributor balance).
         DeployCore.DeploymentAddresses memory addrs = DeployCore.DeploymentAddresses({
             token: deployed.token,
+            airdropDistributor: deployed.airdropDistributor,
             memberNFT: deployed.memberNFT,
             phase: deployed.phase,
             launch: deployed.launch,
@@ -517,17 +500,15 @@ contract DeployLocal is DeployCore {
             submit: deployed.submit,
             stake: deployed.stake
         });
+        // DeployCore's own validation already covers the full graph, including the distributor's
+        // launch/phase/merkle-root bindings and the genesis supply sitting on the distributor.
         _validateDeployment(config, deployed.weth, addrs);
 
         require(deployed.token.code.length != 0, "token has no code");
         require(
-            ILOVE20Token(deployed.token).balanceOf(deployed.airdrop) == config.launchAmount,
-            "Airdrop does not hold the genesis supply"
+            ILOVE20Token(deployed.token).balanceOf(deployed.airdropDistributor) == config.launchAmount,
+            "AirdropDistributor does not hold the genesis supply"
         );
-        // The vendored Airdrop does not implement ILaunchDistributor.onTokenLaunched. Prove it here:
-        // a selector that resolves to no code would revert, so the low-level staticcall MUST fail.
-        (bool ok,) = deployed.airdrop.staticcall(abi.encodeWithSignature("onTokenLaunched(address,address,uint256,bytes[])"));
-        require(!ok, "Airdrop unexpectedly implements onTokenLaunched - update the docs and wiring");
     }
 
     /// ---------------------------------------------------------------------------------------
@@ -552,12 +533,18 @@ contract DeployLocal is DeployCore {
             IActionExecutor(deployed.groupActionExecutor).ACTION_TARGET_ADDRESS() == deployed.actionTarget,
             "GroupActionExecutor.ACTION_TARGET mismatch"
         );
-        require(IActionExecutor(deployed.groupActionExecutor).STAKE_ADDRESS() == deployed.stake, "GroupActionExecutor.STAKE mismatch");
+        require(
+            IActionExecutor(deployed.groupActionExecutor).STAKE_ADDRESS() == deployed.stake,
+            "GroupActionExecutor.STAKE mismatch"
+        );
         require(
             IActionExecutor(deployed.groupActionExecutor).MEMBER_NFT_ADDRESS() == deployed.memberNFT,
             "GroupActionExecutor.MEMBER_NFT mismatch"
         );
-        require(IActionExecutor(deployed.groupActionExecutor).PHASE_ADDRESS() == deployed.phase, "GroupActionExecutor.PHASE mismatch");
+        require(
+            IActionExecutor(deployed.groupActionExecutor).PHASE_ADDRESS() == deployed.phase,
+            "GroupActionExecutor.PHASE mismatch"
+        );
         uint256[] memory splits = groupAction.SPLITS();
         require(splits.length == params.splits.length, "GroupActionExecutor.SPLITS length mismatch");
         for (uint256 i = 0; i < splits.length; i++) {
@@ -584,8 +571,13 @@ contract DeployLocal is DeployCore {
     /// ---------------------------------------------------------------------------------------
     function _validateGroupChat(Deployed memory deployed, Params memory params) internal view {
         require(IGroupAdmin(deployed.groupAdmin).GROUP_ADDRESS() == deployed.memberNFT, "GroupAdmin.GROUP mismatch");
-        require(IGroupAdmin(deployed.groupAdmin).MAX_ADMIN_IDS() == params.maxAdminIds, "GroupAdmin.MAX_ADMIN_IDS mismatch");
-        require(IGroupChat(deployed.groupChat).GROUP_ADMIN_ADDRESS() == deployed.groupAdmin, "GroupChat.GROUP_ADMIN mismatch");
+        require(
+            IGroupAdmin(deployed.groupAdmin).MAX_ADMIN_IDS() == params.maxAdminIds, "GroupAdmin.MAX_ADMIN_IDS mismatch"
+        );
+        require(
+            IGroupChat(deployed.groupChat).GROUP_ADMIN_ADDRESS() == deployed.groupAdmin,
+            "GroupChat.GROUP_ADMIN mismatch"
+        );
         require(IGroupChat(deployed.groupChat).GROUP_ADDRESS() == deployed.memberNFT, "GroupChat.GROUP mismatch");
         require(IGroupChat(deployed.groupChat).PHASE_ADDRESS() == deployed.phase, "GroupChat.PHASE mismatch");
         require(
@@ -609,7 +601,10 @@ contract DeployLocal is DeployCore {
             IGovVotedBanSource(deployed.govVotedBanSource).BAN_THRESHOLD_RATIO() == params.banThresholdRatio,
             "GovVotedBanSource.BAN_THRESHOLD_RATIO mismatch"
         );
-        require(IGroupMember(deployed.groupMember).GROUP_ADMIN_ADDRESS() == deployed.groupAdmin, "GroupMember.GROUP_ADMIN mismatch");
+        require(
+            IGroupMember(deployed.groupMember).GROUP_ADMIN_ADDRESS() == deployed.groupAdmin,
+            "GroupMember.GROUP_ADMIN mismatch"
+        );
         require(IGroupMember(deployed.groupMember).GROUP_ADDRESS() == deployed.memberNFT, "GroupMember.GROUP mismatch");
         require(
             IGroupMemberScope(deployed.groupMemberScope).GROUP_MEMBER_ADDRESS() == deployed.groupMember,
@@ -631,8 +626,13 @@ contract DeployLocal is DeployCore {
         _validateManager(deployed.tokenActionMainManager, deployed, params, true);
     }
 
-    function _validateManager(address manager, Deployed memory deployed, Params memory params, bool isAction) internal view {
-        require(ITokenScopeManagerBase(manager).GROUP_CHAT_ADDRESS() == deployed.groupChat, "manager.GROUP_CHAT mismatch");
+    function _validateManager(address manager, Deployed memory deployed, Params memory params, bool isAction)
+        internal
+        view
+    {
+        require(
+            ITokenScopeManagerBase(manager).GROUP_CHAT_ADDRESS() == deployed.groupChat, "manager.GROUP_CHAT mismatch"
+        );
         require(ITokenScopeManagerBase(manager).GROUP_ADDRESS() == deployed.memberNFT, "manager.GROUP mismatch");
         require(
             ITokenScopeManagerBase(manager).BAN_SOURCE_ADDRESS() == deployed.govVotedBanSource,
@@ -690,7 +690,7 @@ contract DeployLocal is DeployCore {
         vm.serializeAddress(out, "UNISWAP_V2_ROUTER02_ADDRESS", deployed.router);
         vm.serializeAddress(out, "UNISWAP_V2_PAIR_ADDRESS", deployed.pair);
         vm.serializeAddress(out, "MULTICALL3_ADDRESS", deployed.multicall3);
-        vm.serializeAddress(out, "AIRDROP_ADDRESS", deployed.airdrop);
+        vm.serializeAddress(out, "AIRDROP_DISTRIBUTOR_ADDRESS", deployed.airdropDistributor);
         vm.serializeAddress(out, "LOVE20_TOKEN_ADDRESS", deployed.token);
         vm.serializeAddress(out, "PHASE_ADDRESS", deployed.phase);
         vm.serializeAddress(out, "LAUNCH_ADDRESS", deployed.launch);
@@ -723,7 +723,7 @@ contract DeployLocal is DeployCore {
         console2.log("");
         console2.log("=== Deployed (copy into the frontend .env) ===");
         console2.log("LOVE20_TOKEN_ADDRESS         ", deployed.token);
-        console2.log("AIRDROP_ADDRESS              ", deployed.airdrop);
+        console2.log("AIRDROP_DISTRIBUTOR_ADDRESS  ", deployed.airdropDistributor);
         console2.log("PHASE_ADDRESS                ", deployed.phase);
         console2.log("LAUNCH_ADDRESS               ", deployed.launch);
         console2.log("MEMBER_NFT_ADDRESS           ", deployed.memberNFT);

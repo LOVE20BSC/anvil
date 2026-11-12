@@ -4,7 +4,7 @@ pragma solidity =0.8.37;
 import {Script} from "@forge-std/Script.sol";
 import {console2} from "@forge-std/console2.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IAirdrop} from "../src/vendor/IAirdrop.sol";
+import {IAirdropDistributor} from "@core/interfaces/distributor/IAirdropDistributor.sol";
 import {ILOVE20Token} from "@core/interfaces/ILOVE20Token.sol";
 import {IMemberNFT} from "@core/interfaces/IMemberNFT.sol";
 import {IStake} from "@core/interfaces/IStake.sol";
@@ -25,7 +25,8 @@ interface IUniswapV2PairView {
 /// @notice Turns a freshly deployed stack into a chain the frontend can actually be used against.
 ///
 /// What a deploy alone leaves behind:
-///   * the whole genesis supply sits in the Airdrop, every account has zero community tokens;
+///   * the whole genesis supply sits in core's AirdropDistributor, every account has zero community
+///     tokens;
 ///   * no MemberNFT exists, so no wallet can act as a member;
 ///   * Launch._ensurePair() created the root token's pair with ZERO reserves, i.e. the token cannot
 ///     be bought, sold, or staked - and Stake.stakeLiquidity() is the only door into governance.
@@ -36,9 +37,11 @@ interface IUniswapV2PairView {
 ///   1. ETH top-up: every seeded account is brought to at least SEED_ETH_PER_ACCOUNT. anvil already
 ///      funds its own accounts, so on the default flags this is usually a no-op - it exists so the
 ///      same script works when someone lowers `--balance`.
-///   2. Airdrop claim: every seeded account claims its fixture share with its own proof. This is the
-///      only way community tokens enter circulation, exactly as in production:
-///      claimable = balanceOf(airdrop) * share / remainingShare(token).
+///   2. Airdrop claim: every seeded account claims its fixture share with its own proof through
+///      core's AirdropDistributor. This is the only way community tokens enter circulation, exactly
+///      as in production: claimable = balanceOf(distributor) * share / remainingShare(token). The
+///      distributor only accepts claims from claimableFromRound onwards, so script/local.sh mines
+///      up to that round before running this step (and runSeed fails loudly if it is still early).
 ///   3. MemberNFT mint: every seeded account mints an identity (the name gets the protocol's "Test"
 ///      prefix), paying and burning the root-token mint cost.
 ///   4. Liquidity: SEED_LIQUIDITY_MEMBER_INDEX wraps ETH into WETH, approves Stake for both tokens and
@@ -48,7 +51,7 @@ interface IUniswapV2PairView {
 ///      reserves AND the staker gets a member stake in one transaction.
 ///
 /// Reads the address book written by DeployLocal (export/deployments/<profile>.addresses.json) and the
-/// same snapshot fixture the Airdrop was constructed with. Every seeded key is checked against the
+/// same snapshot fixture the AirdropDistributor was configured with. Every seeded key is checked against the
 /// fixture account before it claims, so a fixture generated for a different mnemonic fails here
 /// instead of silently claiming for an account nobody controls.
 contract SeedFlow is Script {
@@ -60,7 +63,7 @@ contract SeedFlow is Script {
 
     struct Addresses {
         address token;
-        address airdrop;
+        address airdropDistributor;
         address memberNFT;
         address stake;
         address weth;
@@ -79,6 +82,7 @@ contract SeedFlow is Script {
         uint256 liquiditySlippage;
         uint256 liquidityPromisedWaitingPhases;
         uint256 ethPerAccount;
+        string snapshotUri;
     }
 
     uint256 internal constant WAD = 1e18;
@@ -92,7 +96,7 @@ contract SeedFlow is Script {
         require(params.memberCount != 0 && params.memberCount <= entries.length, "SEED_MEMBER_COUNT out of range");
         require(params.liquidityMemberIndex < params.memberCount, "SEED_LIQUIDITY_MEMBER_INDEX out of range");
         require(addrs.token.code.length != 0, "token has no code - deploy first");
-        require(addrs.airdrop.code.length != 0, "airdrop has no code - deploy first");
+        require(addrs.airdropDistributor.code.length != 0, "airdropDistributor has no code - deploy first");
         require(addrs.memberNFT.code.length != 0, "memberNFT has no code - deploy first");
         require(addrs.stake.code.length != 0, "stake has no code - deploy first");
         require(addrs.pair.code.length != 0, "pair has no code - deploy first");
@@ -101,9 +105,17 @@ contract SeedFlow is Script {
         address deployer = vm.addr(deployerKey);
         uint256 currentPhase = IPhase(addrs.phase).currentPhase();
         require(currentPhase >= 1, "phase 0 - the chain has not advanced past the deployment block");
+        uint256 claimableFromRound =
+            IAirdropDistributor(addrs.airdropDistributor).claimableFromRoundByTokenAddress(addrs.token);
+        require(
+            currentPhase >= claimableFromRound,
+            "claim round not reached - script/local.sh mines to the round before seeding (make seed)"
+        );
         console2.log("  phase at seed start:", currentPhase);
+        console2.log("  genesis claimableFromRound:", claimableFromRound);
 
         _fundEth(deployerKey, deployer, entries, params);
+        _registerSnapshotUri(addrs, params);
 
         uint256[] memory memberIds = new uint256[](params.memberCount);
         for (uint256 i = 0; i < params.memberCount; i++) {
@@ -146,6 +158,60 @@ contract SeedFlow is Script {
     }
 
     // ------------------------------------------------------------------------------------------
+    // snapshot URI (launcher-only; not applicable to the genesis token on core@141c931)
+    // ------------------------------------------------------------------------------------------
+    /// @dev Registers SNAPSHOT_URI through AirdropDistributor.updateSnapshotUri.
+    ///
+    ///      core commit 141c931 only lets the owner of the token's launcher member update the URI, and the
+    ///      genesis token is configured in the distributor's constructor with launcherMemberId = 0
+    ///      (src/distributor/AirdropDistributor.sol:59-69). `onlySnapshotUriUpdater` reverts
+    ///      `NotSnapshotUriUpdater(caller, 0)` for that id (lines 47-56), for every caller, forever
+    ///      (core's own tests pin this). So there is nothing to broadcast here: the method logs the
+    ///      intended URI, asserts the known genesis state, and leaves the wiring ready for the day
+    ///      core exposes a genesis path (launched child tokens already take this branch).
+    function _registerSnapshotUri(Addresses memory addrs, SeedParams memory params) internal {
+        IAirdropDistributor distributor = IAirdropDistributor(addrs.airdropDistributor);
+        require(bytes(params.snapshotUri).length != 0, "SNAPSHOT_URI is empty");
+        console2.log("  snapshot uri (intended):", params.snapshotUri);
+
+        uint256 launcherMemberId = distributor.launcherMemberIdByTokenAddress(addrs.token);
+        if (launcherMemberId == 0) {
+            require(
+                bytes(distributor.snapshotUriByTokenAddress(addrs.token)).length == 0,
+                "genesis snapshot URI is non-empty - core changed the genesis path, register it here"
+            );
+            console2.log(
+                "  snapshot uri: NOT registered - core reserves updateSnapshotUri for launched tokens",
+                "(genesis launcherMemberId is 0)"
+            );
+            return;
+        }
+
+        address owner = IMemberNFT(addrs.memberNFT).ownerOf(launcherMemberId);
+        uint256 key = _keyForSeededAccount(owner, params);
+        vm.startBroadcast(key);
+        distributor.updateSnapshotUri(addrs.token, params.snapshotUri);
+        vm.stopBroadcast();
+
+        require(
+            keccak256(bytes(distributor.snapshotUriByTokenAddress(addrs.token)))
+                == keccak256(bytes(params.snapshotUri)),
+            "snapshot URI was not recorded"
+        );
+        console2.log("  snapshot uri: registered by launcher member", launcherMemberId);
+    }
+
+    function _keyForSeededAccount(address account, SeedParams memory params) internal view returns (uint256) {
+        uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
+        if (vm.addr(deployerKey) == account) return deployerKey;
+        for (uint256 i = 0; i < params.memberCount; i++) {
+            uint256 key = vm.deriveKey(params.mnemonic, uint32(params.startIndex + i));
+            if (vm.addr(key) == account) return key;
+        }
+        revert("launcher member is not a seeded account");
+    }
+
+    // ------------------------------------------------------------------------------------------
     // steps 2+3 - airdrop claim, member mint (both signed by the seeded account itself)
     // ------------------------------------------------------------------------------------------
     function _claimAndMint(
@@ -155,15 +221,18 @@ contract SeedFlow is Script {
         string memory namePrefix,
         uint256 index
     ) internal returns (uint256 memberId) {
-        IAirdrop airdrop = IAirdrop(addrs.airdrop);
-        uint256 claimable = airdrop.claimableAmount(addrs.token, entry.account, entry.share, entry.proof);
-        require(claimable != 0, "fixture entry is not claimable (wrong root or already claimed)");
+        IAirdropDistributor distributor = IAirdropDistributor(addrs.airdropDistributor);
+        uint256 claimable = distributor.claimableAmount(addrs.token, entry.account, entry.share, entry.proof);
+        require(
+            claimable != 0, "fixture entry is not claimable (wrong root, claim round not reached, or already claimed)"
+        );
 
         string memory name = string.concat(namePrefix, vm.toString(index));
         uint256 cost = IMemberNFT(addrs.memberNFT).calculateMintCost(name);
 
         vm.startBroadcast(key);
-        uint256 claimed = airdrop.claim(addrs.token, entry.account, entry.share, entry.proof);
+        // The distributor pays msg.sender; the seeded account IS the claimer (no account argument).
+        uint256 claimed = distributor.claim(addrs.token, entry.share, entry.proof);
         require(claimed == claimable, "claim amount differs from the quote");
 
         IERC20(addrs.token).approve(addrs.memberNFT, cost);
@@ -180,16 +249,14 @@ contract SeedFlow is Script {
         console2.log("  member claimed:", claimed);
         console2.log("  member mintCost:", actualCost);
         require(IMemberNFT(addrs.memberNFT).balanceOf(entry.account) != 0, "member NFT not minted");
-        require(airdrop.isClaimed(addrs.token, entry.account), "airdrop claim not recorded");
+        require(distributor.isClaimedByTokenAddressByClaimer(addrs.token, entry.account), "airdrop claim not recorded");
         return tokenId;
     }
 
     // ------------------------------------------------------------------------------------------
     // step 4 - liquidity through Stake
     // ------------------------------------------------------------------------------------------
-    function _stakeLiquidity(uint256 key, Addresses memory addrs, uint256 memberId, SeedParams memory params)
-        internal
-    {
+    function _stakeLiquidity(uint256 key, Addresses memory addrs, uint256 memberId, SeedParams memory params) internal {
         address account = vm.addr(key);
         require(memberId != 0, "liquidity member has no member NFT");
 
@@ -197,14 +264,15 @@ contract SeedFlow is Script {
         IWETHDeposit(addrs.weth).deposit{value: params.liquidityParentTokenAmount}();
         IERC20(addrs.token).approve(addrs.stake, params.liquidityTokenAmount);
         IERC20(addrs.weth).approve(addrs.stake, params.liquidityParentTokenAmount);
-        (uint256 govVotesAdded, uint256 liquiditySharesAdded) = IStake(addrs.stake).stakeLiquidity(
-            addrs.token,
-            params.liquidityTokenAmount,
-            params.liquidityParentTokenAmount,
-            params.liquiditySlippage,
-            params.liquidityPromisedWaitingPhases,
-            memberId
-        );
+        (uint256 govVotesAdded, uint256 liquiditySharesAdded) = IStake(addrs.stake)
+            .stakeLiquidity(
+                addrs.token,
+                params.liquidityTokenAmount,
+                params.liquidityParentTokenAmount,
+                params.liquiditySlippage,
+                params.liquidityPromisedWaitingPhases,
+                memberId
+            );
         vm.stopBroadcast();
 
         console2.log("  liquidity: account", account, "memberId", memberId);
@@ -271,9 +339,11 @@ contract SeedFlow is Script {
         params.liquiditySlippage = vm.envUint("SEED_LIQUIDITY_SLIPPAGE");
         params.liquidityPromisedWaitingPhases = vm.envUint("SEED_LIQUIDITY_PROMISED_WAITING_PHASES");
         params.ethPerAccount = vm.envUint("SEED_ETH_PER_ACCOUNT");
+        params.snapshotUri = vm.envString("SNAPSHOT_URI");
 
         require(bytes(params.mnemonic).length != 0, "SEED_MNEMONIC is empty");
         require(bytes(params.namePrefix).length != 0, "SEED_MEMBER_NAME_PREFIX is empty");
+        require(bytes(params.snapshotUri).length != 0, "SNAPSHOT_URI is empty");
         require(params.liquidityTokenAmount != 0, "SEED_LIQUIDITY_TOKEN_AMOUNT is zero");
         require(params.liquidityParentTokenAmount != 0, "SEED_LIQUIDITY_PARENT_TOKEN_AMOUNT is zero");
     }
@@ -281,7 +351,7 @@ contract SeedFlow is Script {
     function _loadAddresses() internal view returns (Addresses memory addrs) {
         string memory book = vm.readFile(vm.envString("ADDRESSES_JSON_FILE"));
         addrs.token = vm.parseJsonAddress(book, ".LOVE20_TOKEN_ADDRESS");
-        addrs.airdrop = vm.parseJsonAddress(book, ".AIRDROP_ADDRESS");
+        addrs.airdropDistributor = vm.parseJsonAddress(book, ".AIRDROP_DISTRIBUTOR_ADDRESS");
         addrs.memberNFT = vm.parseJsonAddress(book, ".MEMBER_NFT_ADDRESS");
         addrs.stake = vm.parseJsonAddress(book, ".STAKE_ADDRESS");
         addrs.weth = vm.parseJsonAddress(book, ".WETH_ADDRESS");

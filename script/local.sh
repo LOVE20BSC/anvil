@@ -13,8 +13,8 @@
 #   fresh        assert deployer nonce 0 + no Multicall3 (bootstrap also requires block 0)
 #   multicall3   deploy Multicall3 at its canonical address from the upstream pre-signed tx
 #   libraries    deploy the four action libraries (link targets for the executors)
-#   deploy       deploy WETH + UniswapV2 + Airdrop + core + action + group-chat
-#   seed         seed members, identities, liquidity, ETH balances
+#   deploy       deploy WETH + UniswapV2 + core (with its AirdropDistributor) + action + group-chat
+#   seed         advance to the genesis claim round, then seed identities/liquidity/ETH
 #   export       build export/deployments/anvil31337_dev.json + export/abis/*.json
 #   verify       cast-level assertions over every exported address (writes export/VERIFIED.md)
 #   bootstrap    preflight -> fixture -> build -> anvil -> fresh -> multicall3 -> libraries ->
@@ -447,7 +447,7 @@ PY
 # ------------------------------------------------------------------------------------------------
 cmd_deploy() {
     load_params
-    step "deploy (WETH -> UniswapV2 -> Airdrop -> core -> action -> group-chat)"
+    step "deploy (WETH -> UniswapV2 -> core [Phase, AirdropDistributor, Launch, ...] -> action -> group-chat)"
     [ -s "$LIBRARIES_JSON_FILE" ] || die "missing $LIBRARIES_JSON_FILE - run 'make libraries' first"
     [ -s "$SNAPSHOT_ABS" ] || die "missing $AIRDROP_SNAPSHOT_FILE - run 'make fixture' first"
 
@@ -472,9 +472,44 @@ cmd_deploy() {
 # ------------------------------------------------------------------------------------------------
 # seed
 # ------------------------------------------------------------------------------------------------
+# AirdropDistributor records claimableFromRound = max(phase at deploy, 1) + claim delay. The
+# bootstrap deploys in phase 1 and the seed runs immediately, so on this profile every claim would
+# revert ClaimRoundNotReached until phase 2. Mining the gap is chain control, not state forgery:
+# it is the local equivalent of waiting for the round. It happens AFTER the DeployLocal broadcast,
+# so the exported addresses/block numbers (read from that broadcast) are unchanged.
+advance_to_claim_round() {
+    local distributor token phase_addr claimable phase origin_blocks origin_phase_blocks
+    local target_block current_block delta
+    distributor="$(python3 -c "import json;print(json.load(open('$ADDRESSES_JSON_FILE'))['AIRDROP_DISTRIBUTOR_ADDRESS'])")"
+    token="$(python3 -c "import json;print(json.load(open('$ADDRESSES_JSON_FILE'))['LOVE20_TOKEN_ADDRESS'])")"
+    phase_addr="$(python3 -c "import json;print(json.load(open('$ADDRESSES_JSON_FILE'))['PHASE_ADDRESS'])")"
+
+    claimable="$(cast call "$distributor" 'claimableFromRoundByTokenAddress(address)(uint256)' "$token" \
+        --rpc-url "$RPC_URL" | awk '{print $1}')"
+    [ -n "$claimable" ] && [ "$claimable" != "0" ] \
+        || die "AirdropDistributor has no genesis claim round - did the core deployment configure it?"
+    phase="$(cast call "$phase_addr" 'currentPhase()(uint256)' --rpc-url "$RPC_URL" | awk '{print $1}')"
+    if [ "$phase" -ge "$claimable" ]; then
+        ok "already at claim round (phase $phase >= $claimable)"
+        return 0
+    fi
+
+    origin_blocks="$(cast call "$phase_addr" 'ORIGIN_BLOCKS()(uint256)' --rpc-url "$RPC_URL" | awk '{print $1}')"
+    origin_phase_blocks="$(cast call "$phase_addr" 'ORIGIN_PHASE_BLOCKS()(uint256)' --rpc-url "$RPC_URL" | awk '{print $1}')"
+    target_block=$((origin_blocks + (claimable - 1) * origin_phase_blocks))
+    current_block="$(cast block-number --rpc-url "$RPC_URL")"
+    delta=$((target_block - current_block))
+    [ "$delta" -gt 0 ] || die "cannot reach claim round $claimable from block $current_block"
+    cast rpc anvil_mine "$(cast to-hex "$delta")" --rpc-url "$RPC_URL" >/dev/null
+    phase="$(cast call "$phase_addr" 'currentPhase()(uint256)' --rpc-url "$RPC_URL" | awk '{print $1}')"
+    [ "$phase" -ge "$claimable" ] || die "mined $delta blocks but phase is $phase < $claimable"
+    ok "mined $delta blocks to reach claim round ($phase >= $claimable)"
+}
+
 cmd_seed() {
     load_params
-    step "seed (airdrop claims, MemberNFTs, liquidity, ETH balances)"
+    step "seed (advance to claim round, airdrop claims, MemberNFTs, liquidity, ETH balances)"
+    advance_to_claim_round
     forge script script/SeedFlow.s.sol:SeedFlow \
         --sig "runSeed()" \
         --rpc-url "$RPC_URL" \

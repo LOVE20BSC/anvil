@@ -12,7 +12,8 @@ Inputs:
 
 Outputs:
     export/deployments/<profile>.json   one file with chainId, deploy block, every contract address
-                                        + the block it was deployed in + the airdrop/univ2 metadata
+                                        + the block it was deployed in + the airdropDistributor/univ2
+                                        metadata
     export/abis/<Contract>.json         the `abi` array only, for the contracts the frontend calls
     export/airdrop/<profile>.json       copy of the snapshot so the frontend never reads fixtures/
 
@@ -55,7 +56,7 @@ CONTRACTS = {
     "UniswapV2Router02": ("UNISWAP_V2_ROUTER02_ADDRESS", "uniswap"),
     "UniswapV2Pair": ("UNISWAP_V2_PAIR_ADDRESS", "uniswap"),
     "Multicall3": ("MULTICALL3_ADDRESS", "infra"),
-    "Airdrop": ("AIRDROP_ADDRESS", "core"),
+    "AirdropDistributor": ("AIRDROP_DISTRIBUTOR_ADDRESS", "core"),
     "LOVE20Token": ("LOVE20_TOKEN_ADDRESS", "core"),
     "Phase": ("PHASE_ADDRESS", "core"),
     "Launch": ("LAUNCH_ADDRESS", "core"),
@@ -101,6 +102,7 @@ DEX_BUILD = Path(os.environ.get("DEX_BUILD", ROOT.parent / "dex" / "build"))
 
 ABI_SOURCES = {
     # core
+    "AirdropDistributor": CORE_OUT / "AirdropDistributor.sol" / "AirdropDistributor.json",
     "LOVE20Token": CORE_OUT / "LOVE20Token.sol" / "LOVE20Token.json",
     "Phase": CORE_OUT / "Phase.sol" / "Phase.json",
     "Launch": CORE_OUT / "Launch.sol" / "Launch.json",
@@ -120,8 +122,7 @@ ABI_SOURCES = {
     "UniswapV2Factory": DEX_BUILD / "core" / "UniswapV2Factory.sol" / "UniswapV2Factory.json",
     "UniswapV2Router02": DEX_BUILD / "periphery" / "UniswapV2Router02.sol" / "UniswapV2Router02.json",
     "UniswapV2Pair": DEX_BUILD / "core" / "UniswapV2Pair.sol" / "UniswapV2Pair.json",
-    # this project (vendored airdrop, configurable WETH, forge-std's canonical IMulticall3 ABI)
-    "Airdrop": ROOT / "out" / "Airdrop.sol" / "Airdrop.json",
+    # this project (configurable WETH, forge-std's canonical IMulticall3 ABI)
     "WETH9": ROOT / "out" / "WETH9Configurable.sol" / "WETH9Configurable.json",
     "Multicall3": ROOT / "out" / "IMulticall3.sol" / "IMulticall3.json",
 }
@@ -174,6 +175,27 @@ def cast_call_address(rpc_url: str, to: str, signature: str) -> str:
     if not re.fullmatch(r"0x[0-9a-fA-F]{40}", value):
         fail(f"{to}.{signature} returned an unexpected value: {value!r}")
     return checksum_address(value)
+
+
+def cast_call(rpc_url: str, to: str, signature: str, *args: str) -> str:
+    """Run `cast call` and return the first line of stdout (one return value)."""
+    value = run_cast("call", to, signature, *args, "--rpc-url", rpc_url).strip()
+    return value.splitlines()[0].strip() if value else ""
+
+
+def cast_call_uint(rpc_url: str, to: str, signature: str, *args: str) -> int:
+    value = cast_call(rpc_url, to, signature, *args)
+    try:
+        return int(value, 0)
+    except ValueError:
+        fail(f"{to}.{signature} returned an unexpected uint: {value!r}")
+
+
+def cast_call_string(rpc_url: str, to: str, signature: str, *args: str) -> str:
+    value = cast_call(rpc_url, to, signature, *args)
+    if len(value) >= 2 and value[0] == '"' and value[-1] == '"':
+        value = value[1:-1]
+    return value
 
 
 def expand_params_value(value: str) -> str:
@@ -480,6 +502,26 @@ def main() -> int:
     token_name = require_param(params, "TOKEN_NAME")
     token_symbol = require_param(params, "TOKEN_SYMBOL")
 
+    # AirdropDistributor state that is only knowable from the chain: the claim round was frozen at
+    # deployment and the URI may (for a launched token) have been registered by its launcher. The
+    # genesis token's launcherMemberId is 0 and core@141c931 refuses updateSnapshotUri for it, so
+    # snapshotUri is expected to be empty here; intendedSnapshotUri records what the seed WOULD
+    # register once core supports the genesis path. Never assume either value.
+    airdrop_distributor = flat["AIRDROP_DISTRIBUTOR_ADDRESS"]
+    genesis_token = flat["LOVE20_TOKEN_ADDRESS"]
+    claimable_from_round = cast_call_uint(
+        chain_rpc_url,
+        airdrop_distributor,
+        "claimableFromRoundByTokenAddress(address)(uint256)",
+        genesis_token,
+    )
+    onchain_snapshot_uri = cast_call_string(
+        chain_rpc_url,
+        airdrop_distributor,
+        "snapshotUriByTokenAddress(address)(string)",
+        genesis_token,
+    )
+
     deployment = {
         "network": profile,
         "chainId": chain_id,
@@ -499,15 +541,17 @@ def main() -> int:
             "feeTo": fee_to,
             "pairInitCodeHash": "0x96e8ac4277198ff8b6f785478aa9a39f403cb768dd02cbee326c3e7da348845f",
         },
-        "airdrop": {
-            "address": flat["AIRDROP_ADDRESS"],
-            "token": flat["LOVE20_TOKEN_ADDRESS"],
+        "airdropDistributor": {
+            "address": airdrop_distributor,
+            "token": genesis_token,
             "merkleRoot": snapshot["merkleRoot"],
             "totalShare": snapshot["totalShare"],
             "accountCount": snapshot["accountCount"],
-            "sourceChainId": snapshot["sourceChainId"],
-            "sourceBlockNumber": snapshot["sourceBlockNumber"],
-            "sourceBurnAddress": snapshot["sourceBurnAddress"],
+            "claimDelayRounds": param_uint(params, "GENESIS_AIRDROP_CLAIM_DELAY_ROUNDS"),
+            # Chain state, not assumptions (see above).
+            "claimableFromRound": claimable_from_round,
+            "snapshotUri": onchain_snapshot_uri,
+            "intendedSnapshotUri": require_param(params, "SNAPSHOT_URI"),
             "snapshotFile": f"export/airdrop/{profile}.json",
         },
         "params": {

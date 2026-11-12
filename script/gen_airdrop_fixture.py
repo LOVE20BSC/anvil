@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 """Generate the local airdrop snapshot (Merkle tree) for the anvil31337_dev profile.
 
-The artifact this writes is the file the vendored Airdrop contract is constructed with and the file
-the frontend is served, so it must match the contract's derivation exactly:
+The artifact this writes is the file core's AirdropDistributor is configured with (through
+GENESIS_AIRDROP_MERKLE_ROOT) and the file the frontend is served, so it must match the contract's
+derivation exactly:
 
     leaf(account, share) = keccak256(bytes.concat(keccak256(abi.encode(account, share))))
     node(a, b)           = keccak256(bytes.concat(min(a,b), max(a,b)))     # sorted pair
     unpaired last node   = promoted unchanged
 
-That is the algorithm in LOVE20TKM/burn/script/GenerateAirdropSnapshot.s.sol (double-hashed leaves,
-sorted pairs, promotion), and `Airdrop.leafHash()` is the same double hash. Shares are relative: the
-contract pays `balanceOf(this) * share / remainingShare(token)`, so the snapshot only fixes the
-split, never an absolute amount. `totalShare = sum(shares)` and may not exceed 1e18.
+That is the algorithm core's AirdropDistributor.leafHash uses (double-hashed leaves, sorted pairs,
+promotion; see core/src/distributor/AirdropDistributor.sol). Shares are relative: the distributor
+pays `balanceOf(this) * share / remainingShare(token)`, so the snapshot only fixes the split, never
+an absolute amount. `totalShare = sum(shares)` must equal 1e18 (the distributor's TOTAL_SHARE).
 
 Accounts are derived from the standard anvil mnemonic with `cast wallet address`, i.e. exactly the
 keys script/SeedFlow.s.sol derives on chain with vm.deriveKey. The deploy and the seed therefore
