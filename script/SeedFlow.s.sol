@@ -4,7 +4,7 @@ pragma solidity =0.8.37;
 import {Script} from "@forge-std/Script.sol";
 import {console2} from "@forge-std/console2.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IAirdropDistributor} from "@core/interfaces/distributor/IAirdropDistributor.sol";
+import {IAirdropDistributor, AirdropInfo} from "@core/interfaces/distributor/IAirdropDistributor.sol";
 import {ILOVE20Token} from "@core/interfaces/ILOVE20Token.sol";
 import {IMemberNFT} from "@core/interfaces/IMemberNFT.sol";
 import {IStake} from "@core/interfaces/IStake.sol";
@@ -106,7 +106,7 @@ contract SeedFlow is Script {
         uint256 currentPhase = IPhase(addrs.phase).currentPhase();
         require(currentPhase >= 1, "phase 0 - the chain has not advanced past the deployment block");
         uint256 claimableFromRound =
-            IAirdropDistributor(addrs.airdropDistributor).claimableFromRoundByTokenAddress(addrs.token);
+            IAirdropDistributor(addrs.airdropDistributor).airdropInfo(addrs.token).claimableFromRound;
         require(
             currentPhase >= claimableFromRound,
             "claim round not reached - script/local.sh mines to the round before seeding (make seed)"
@@ -158,57 +158,35 @@ contract SeedFlow is Script {
     }
 
     // ------------------------------------------------------------------------------------------
-    // snapshot URI (launcher-only; not applicable to the genesis token on core@141c931)
+    // snapshot URI (launcher-only; not applicable to the genesis token on core@4200d35)
     // ------------------------------------------------------------------------------------------
-    /// @dev Registers SNAPSHOT_URI through AirdropDistributor.updateSnapshotUri.
+    /// @dev Registers SNAPSHOT_URI through AirdropDistributor.updateSnapshotUri when core lets this
+    ///      seed account sign for the token.
     ///
-    ///      core commit 141c931 only lets the owner of the token's launcher member update the URI, and the
+    ///      core 4200d35 only lets the owner of the token's launcher member update the URI, and the
     ///      genesis token is configured in the distributor's constructor with launcherMemberId = 0
-    ///      (src/distributor/AirdropDistributor.sol:59-69). `onlySnapshotUriUpdater` reverts
-    ///      `NotSnapshotUriUpdater(caller, 0)` for that id (lines 47-56), for every caller, forever
-    ///      (core's own tests pin this). So there is nothing to broadcast here: the method logs the
-    ///      intended URI, asserts the known genesis state, and leaves the wiring ready for the day
-    ///      core exposes a genesis path (launched child tokens already take this branch).
-    function _registerSnapshotUri(Addresses memory addrs, SeedParams memory params) internal {
+    ///      (src/distributor/AirdropDistributor.sol). `onlySnapshotUriUpdater` reverts
+    ///      `NotSnapshotUriUpdater(caller, 0)` for that id for every caller (core's own tests pin
+    ///      this). The per-token launcherMemberId getter was removed by core commit 0cdbe44, so the only
+    ///      observable genesis state left is `AirdropInfo.snapshotUri`: nothing to broadcast here.
+    ///      The method logs the intended URI, asserts that observable state, and leaves the wiring
+    ///      ready for the day core exposes a genesis path (a launched child token with a real
+    ///      launcher member would need its own branch again).
+    function _registerSnapshotUri(Addresses memory addrs, SeedParams memory params) internal view {
         IAirdropDistributor distributor = IAirdropDistributor(addrs.airdropDistributor);
         require(bytes(params.snapshotUri).length != 0, "SNAPSHOT_URI is empty");
         console2.log("  snapshot uri (intended):", params.snapshotUri);
 
-        uint256 launcherMemberId = distributor.launcherMemberIdByTokenAddress(addrs.token);
-        if (launcherMemberId == 0) {
-            require(
-                bytes(distributor.snapshotUriByTokenAddress(addrs.token)).length == 0,
-                "genesis snapshot URI is non-empty - core changed the genesis path, register it here"
-            );
-            console2.log(
-                "  snapshot uri: NOT registered - core reserves updateSnapshotUri for launched tokens",
-                "(genesis launcherMemberId is 0)"
-            );
-            return;
-        }
-
-        address owner = IMemberNFT(addrs.memberNFT).ownerOf(launcherMemberId);
-        uint256 key = _keyForSeededAccount(owner, params);
-        vm.startBroadcast(key);
-        distributor.updateSnapshotUri(addrs.token, params.snapshotUri);
-        vm.stopBroadcast();
-
+        AirdropInfo memory info = distributor.airdropInfo(addrs.token);
+        require(info.merkleRoot != bytes32(0), "genesis airdrop is not configured");
         require(
-            keccak256(bytes(distributor.snapshotUriByTokenAddress(addrs.token)))
-                == keccak256(bytes(params.snapshotUri)),
-            "snapshot URI was not recorded"
+            bytes(info.snapshotUri).length == 0,
+            "genesis snapshot URI is non-empty - core changed the genesis path, register it here"
         );
-        console2.log("  snapshot uri: registered by launcher member", launcherMemberId);
-    }
-
-    function _keyForSeededAccount(address account, SeedParams memory params) internal view returns (uint256) {
-        uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
-        if (vm.addr(deployerKey) == account) return deployerKey;
-        for (uint256 i = 0; i < params.memberCount; i++) {
-            uint256 key = vm.deriveKey(params.mnemonic, uint32(params.startIndex + i));
-            if (vm.addr(key) == account) return key;
-        }
-        revert("launcher member is not a seeded account");
+        console2.log(
+            "  snapshot uri: NOT registered - core reserves updateSnapshotUri for launched tokens",
+            "(the genesis airdrop has no launcher member)"
+        );
     }
 
     // ------------------------------------------------------------------------------------------
@@ -249,7 +227,7 @@ contract SeedFlow is Script {
         console2.log("  member claimed:", claimed);
         console2.log("  member mintCost:", actualCost);
         require(IMemberNFT(addrs.memberNFT).balanceOf(entry.account) != 0, "member NFT not minted");
-        require(distributor.isClaimedByTokenAddressByClaimer(addrs.token, entry.account), "airdrop claim not recorded");
+        require(distributor.isClaimed(addrs.token, entry.account), "airdrop claim not recorded");
         return tokenId;
     }
 

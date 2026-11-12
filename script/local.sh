@@ -484,8 +484,12 @@ advance_to_claim_round() {
     token="$(python3 -c "import json;print(json.load(open('$ADDRESSES_JSON_FILE'))['LOVE20_TOKEN_ADDRESS'])")"
     phase_addr="$(python3 -c "import json;print(json.load(open('$ADDRESSES_JSON_FILE'))['PHASE_ADDRESS'])")"
 
-    claimable="$(cast call "$distributor" 'claimableFromRoundByTokenAddress(address)(uint256)' "$token" \
-        --rpc-url "$RPC_URL" | awk '{print $1}')"
+    # core@4200d35 exposes airdropInfo(token) instead of claimableFromRoundByTokenAddress; --json
+    # keeps the tuple parseable (claimableFromRound is field index 2).
+    claimable="$(cast call "$distributor" \
+        'airdropInfo(address)((address,bytes32,uint256,uint256,uint256,uint256,uint256,string))' \
+        "$token" --rpc-url "$RPC_URL" --json \
+        | python3 -c 'import json,sys;print(json.load(sys.stdin)[0][2])' 2>/dev/null || true)"
     [ -n "$claimable" ] && [ "$claimable" != "0" ] \
         || die "AirdropDistributor has no genesis claim round - did the core deployment configure it?"
     phase="$(cast call "$phase_addr" 'currentPhase()(uint256)' --rpc-url "$RPC_URL" | awk '{print $1}')"

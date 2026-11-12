@@ -183,18 +183,22 @@ def cast_call(rpc_url: str, to: str, signature: str, *args: str) -> str:
     return value.splitlines()[0].strip() if value else ""
 
 
-def cast_call_uint(rpc_url: str, to: str, signature: str, *args: str) -> int:
-    value = cast_call(rpc_url, to, signature, *args)
+def cast_call_tuple(rpc_url: str, to: str, signature: str, *args: str) -> list:
+    """Run `cast call --json` for one struct/tuple return and return its fields.
+
+    Without `--json` cast prints the already-decoded human tuple `(0x…, 0x…, 2, …)`, which is
+    lossy for strings (snapshotUri may contain commas). `--json` wraps the single return value in
+    an array, `[[field0, field1, …]]`, whose elements are plain JSON strings.
+    """
+    out = run_cast("call", to, signature, *args, "--json", "--rpc-url", rpc_url).strip()
     try:
-        return int(value, 0)
-    except ValueError:
-        fail(f"{to}.{signature} returned an unexpected uint: {value!r}")
-
-
-def cast_call_string(rpc_url: str, to: str, signature: str, *args: str) -> str:
-    value = cast_call(rpc_url, to, signature, *args)
-    if len(value) >= 2 and value[0] == '"' and value[-1] == '"':
-        value = value[1:-1]
+        value = json.loads(out)
+    except json.JSONDecodeError:
+        fail(f"{to}.{signature} did not return JSON: {out!r}")
+    if isinstance(value, list) and len(value) == 1 and isinstance(value[0], list):
+        value = value[0]
+    if not isinstance(value, list):
+        fail(f"{to}.{signature} returned an unexpected shape: {value!r}")
     return value
 
 
@@ -502,25 +506,49 @@ def main() -> int:
     token_name = require_param(params, "TOKEN_NAME")
     token_symbol = require_param(params, "TOKEN_SYMBOL")
 
-    # AirdropDistributor state that is only knowable from the chain: the claim round was frozen at
-    # deployment and the URI may (for a launched token) have been registered by its launcher. The
-    # genesis token's launcherMemberId is 0 and core@141c931 refuses updateSnapshotUri for it, so
-    # snapshotUri is expected to be empty here; intendedSnapshotUri records what the seed WOULD
-    # register once core supports the genesis path. Never assume either value.
+    # AirdropDistributor state that is only knowable from the chain, read through core's single
+    # `airdropInfo(token)` struct view (core@4200d35 collapsed the six per-token getters into it).
+    # Field order: tokenAddress, merkleRoot, claimableFromRound, totalClaimedShare,
+    # totalRemainingShare, totalClaimedAmount, remainingAmount, snapshotUri.
+    # The genesis airdrop has no launcher member, so snapshotUri is expected to be empty here;
+    # intendedSnapshotUri records what the seed WOULD register once core supports the genesis path.
+    # Never assume either value.
     airdrop_distributor = flat["AIRDROP_DISTRIBUTOR_ADDRESS"]
     genesis_token = flat["LOVE20_TOKEN_ADDRESS"]
-    claimable_from_round = cast_call_uint(
+    airdrop_info = cast_call_tuple(
         chain_rpc_url,
         airdrop_distributor,
-        "claimableFromRoundByTokenAddress(address)(uint256)",
+        "airdropInfo(address)((address,bytes32,uint256,uint256,uint256,uint256,uint256,string))",
         genesis_token,
     )
-    onchain_snapshot_uri = cast_call_string(
-        chain_rpc_url,
-        airdrop_distributor,
-        "snapshotUriByTokenAddress(address)(string)",
-        genesis_token,
-    )
+    if len(airdrop_info) != 8:
+        fail(f"AirdropDistributor.airdropInfo returned {len(airdrop_info)} fields, expected 8: {airdrop_info!r}")
+    (
+        info_token,
+        onchain_merkle_root,
+        claimable_from_round,
+        total_claimed_share,
+        total_remaining_share,
+        total_claimed_amount,
+        remaining_amount,
+        onchain_snapshot_uri,
+    ) = airdrop_info
+    if str(info_token).lower() != genesis_token.lower():
+        fail(f"AirdropDistributor.airdropInfo is for {info_token}, expected {genesis_token}")
+    if str(onchain_merkle_root).lower() != str(snapshot["merkleRoot"]).lower():
+        fail(
+            f"AirdropDistributor.airdropInfo.merkleRoot {onchain_merkle_root} does not match the "
+            f"fixture root {snapshot['merkleRoot']}"
+        )
+    try:
+        claimable_from_round = int(claimable_from_round)
+        total_claimed_share = int(total_claimed_share)
+        total_remaining_share = int(total_remaining_share)
+        total_claimed_amount = int(total_claimed_amount)
+        remaining_amount = int(remaining_amount)
+    except (TypeError, ValueError):
+        fail(f"AirdropDistributor.airdropInfo returned a non-integer numeric field: {airdrop_info!r}")
+    onchain_snapshot_uri = str(onchain_snapshot_uri)
 
     deployment = {
         "network": profile,
@@ -544,12 +572,17 @@ def main() -> int:
         "airdropDistributor": {
             "address": airdrop_distributor,
             "token": genesis_token,
-            "merkleRoot": snapshot["merkleRoot"],
+            "merkleRoot": onchain_merkle_root,
             "totalShare": snapshot["totalShare"],
             "accountCount": snapshot["accountCount"],
             "claimDelayRounds": param_uint(params, "GENESIS_AIRDROP_CLAIM_DELAY_ROUNDS"),
-            # Chain state, not assumptions (see above).
+            # Chain state, not assumptions (see above). The new struct fields let the frontend show
+            # claims and the distributor's remaining balance without a second call per token.
             "claimableFromRound": claimable_from_round,
+            "totalClaimedShare": total_claimed_share,
+            "totalRemainingShare": total_remaining_share,
+            "totalClaimedAmount": total_claimed_amount,
+            "remainingAmount": remaining_amount,
             "snapshotUri": onchain_snapshot_uri,
             "intendedSnapshotUri": require_param(params, "SNAPSHOT_URI"),
             "snapshotFile": f"export/airdrop/{profile}.json",

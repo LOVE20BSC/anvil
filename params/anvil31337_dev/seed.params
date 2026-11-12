@@ -34,10 +34,12 @@ SEED_ETH_PER_ACCOUNT=100e18
 # AirdropDistributor.updateSnapshotUri(genesisToken, SNAPSHOT_URI). It is the URL the frontend dev
 # server already serves (public/airdrop/anvil31337_dev.json).
 #
-# NOT REGISTERED TODAY: core@141c931 reserves updateSnapshotUri for LAUNCHED tokens. The genesis
-# token's launcherMemberId is 0 by construction and `onlySnapshotUriUpdater` reverts
+# NOT REGISTERED TODAY: core@4200d35 reserves updateSnapshotUri for LAUNCHED tokens. The genesis
+# airdrop is configured with launcherMemberId 0 by construction and `onlySnapshotUriUpdater` reverts
 # NotSnapshotUriUpdater(caller, 0), so no caller can set it for the genesis token (core's own tests
-# assert this is permanent). SeedFlow keeps this value, logs that it cannot be applied, and verify.sh
-# asserts the on-chain value is still empty. Once core exposes a genesis path, the seed should call
-# updateSnapshotUri as the launcher member and this key becomes live without further changes.
+# assert this is permanent). The launcherMemberId getter itself was removed by core@0cdbe44, so the
+# only observable state is `airdropInfo(genesisToken).snapshotUri`. SeedFlow keeps this value, logs
+# that it cannot be applied, and verify.sh asserts the on-chain value is still empty. Once core
+# exposes a genesis path, the seed should call updateSnapshotUri as the launcher member and this key
+# becomes live without further changes.
 SNAPSHOT_URI=http://127.0.0.1:5180/airdrop/anvil31337_dev.json
