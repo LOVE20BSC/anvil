@@ -42,9 +42,13 @@
     "claimableFromRound": 2,
     "intendedSnapshotUri": "http://127.0.0.1:5180/airdrop/anvil31337_dev.json",
     "merkleRoot": "0x046a5d5357fd4da6986a88fb1e2baf3603375d2099ce9f46b9d6fbe333c6c404",
+    "remainingAmount": 500000000000000000000000000,
     "snapshotFile": "export/airdrop/anvil31337_dev.json",
     "snapshotUri": "",
     "token": "0x8aCd85898458400f7Db866d53FCFF6f0D49741FF",
+    "totalClaimedAmount": 500000000000000000000000000,
+    "totalClaimedShare": 500000000000000000,
+    "totalRemainingShare": 500000000000000000,
     "totalShare": "1000000000000000000"
   },
   "chainId": 31337,
