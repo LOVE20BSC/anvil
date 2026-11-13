@@ -451,11 +451,6 @@
         "internalType": "uint256"
       },
       {
-        "name": "slippage",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
         "name": "promisedWaitingPhases",
         "type": "uint256",
         "internalType": "uint256"
@@ -833,6 +828,18 @@
         "internalType": "uint256"
       },
       {
+        "name": "caller",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      },
+      {
+        "name": "memberOwner",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      },
+      {
         "name": "boostAmount",
         "type": "uint256",
         "indexed": false,
@@ -840,6 +847,12 @@
       },
       {
         "name": "promisedWaitingPhases",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "prevPromisedWaitingPhases",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -1016,6 +1029,18 @@
         "internalType": "uint256"
       },
       {
+        "name": "caller",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      },
+      {
+        "name": "memberOwner",
+        "type": "address",
+        "indexed": false,
+        "internalType": "address"
+      },
+      {
         "name": "tokenAmount",
         "type": "uint256",
         "indexed": false,
@@ -1034,13 +1059,13 @@
         "internalType": "uint256"
       },
       {
-        "name": "govVotesAdded",
+        "name": "prevPromisedWaitingPhases",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
       },
       {
-        "name": "govVotes",
+        "name": "govVotesAdded",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -1450,22 +1475,6 @@
         "name": "token",
         "type": "address",
         "internalType": "address"
-      }
-    ]
-  },
-  {
-    "type": "error",
-    "name": "SlippageExceeded",
-    "inputs": [
-      {
-        "name": "actualDeviation",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "maxDeviation",
-        "type": "uint256",
-        "internalType": "uint256"
       }
     ]
   },
