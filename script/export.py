@@ -81,6 +81,9 @@ CONTRACTS = {
     "TokenGovManager": ("TOKEN_GOV_MANAGER_ADDRESS", "group-chat"),
     "TokenActionGovManager": ("TOKEN_ACTION_GOV_MANAGER_ADDRESS", "group-chat"),
     "TokenActionMainManager": ("TOKEN_ACTION_MAIN_MANAGER_ADDRESS", "group-chat"),
+    # periphery / tools (appended to DeployLocal's sequence, see that file's Order note)
+    "BatchTransfer": ("BATCH_TRANSFER_ADDRESS", "tools"),
+    "LOVE20Hub": ("HUB_ADDRESS", "periphery"),
 }
 
 # The libraries are exported too: a frontend that decodes executor calls needs them in the address
@@ -125,6 +128,11 @@ ABI_SOURCES = {
     # this project (configurable WETH, forge-std's canonical IMulticall3 ABI)
     "WETH9": ROOT / "out" / "WETH9Configurable.sol" / "WETH9Configurable.json",
     "Multicall3": ROOT / "out" / "IMulticall3.sol" / "IMulticall3.json",
+    # periphery / tools: compiled HERE (read-only siblings through .siblings/), so the exported ABI is
+    # the one that matches the bytecode this repo actually deployed - the siblings' own out/ is a
+    # build artifact of another checkout and may be stale or absent.
+    "BatchTransfer": ROOT / "out" / "BatchTransfer.sol" / "BatchTransfer.json",
+    "LOVE20Hub": ROOT / "out" / "LOVE20Hub.sol" / "LOVE20Hub.json",
 }
 
 ABI_HELP = """missing ABI artifact: {path}

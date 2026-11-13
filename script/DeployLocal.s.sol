@@ -49,6 +49,13 @@ import {IGroupMemberScope} from "@group-chat/interfaces/sources/scope/IGroupMemb
 import {ITokenActionScopeManagerBase} from "@group-chat/interfaces/managers/ITokenActionScopeManagerBase.sol";
 import {ITokenScopeManagerBase} from "@group-chat/interfaces/managers/ITokenScopeManagerBase.sol";
 
+// periphery: LOVE20Hub derives every dependency (router/factory/launch/memberNFT/wrapped native) from
+// the Stake address it is constructed with; nothing else is passed in.
+import {LOVE20Hub} from "periphery/src/LOVE20Hub.sol";
+
+// tools: BatchTransfer is stateless and takes no constructor arguments.
+import {BatchTransfer} from "tools/src/BatchTransfer.sol";
+
 /// @dev Minimal views of the UniswapV2 contracts read from ../dex/build. The published interfaces
 ///      live under the dex repo's own uniswap-v2 remappings, which are not mounted here; the three
 ///      functions below are the whole surface this script needs.
@@ -69,6 +76,21 @@ interface IWETHView {
     function symbol() external view returns (string memory);
     function decimals() external view returns (uint8);
     function totalSupply() external view returns (uint256);
+}
+
+/// @dev LOVE20Hub views used for the post-deploy binding checks. The hub's own interface declares
+///      ROUTER_ADDRESS() as `IUniswapV2Router02`; every one of these getters is an ABI address or
+///      uint256, so the minimal address-typed view decodes identically without pulling the hub's
+///      interface (and its Uniswap interface chain) into this script.
+interface ILOVE20HubView {
+    function STAKE_ADDRESS() external view returns (address);
+    function ROUTER_ADDRESS() external view returns (address);
+    function PAIR_FACTORY_ADDRESS() external view returns (address);
+    function LAUNCH_ADDRESS() external view returns (address);
+    function MEMBER_NFT_ADDRESS() external view returns (address);
+    function WRAPPED_NATIVE_ADDRESS() external view returns (address);
+    function SWAP_FEE_FOR_LP_RATIO() external view returns (uint256);
+    function SWAP_FEE_FOR_PROTOCOL_RATIO() external view returns (uint256);
 }
 
 /// @title DeployLocal
@@ -92,6 +114,11 @@ interface IWETHView {
 ///                              The two executors are linked against the four libraries deployed by
 ///                              DeployLibraries.s.sol (see that file for why it is a separate run).
 ///   G. group-chat            - GroupAdmin -> GroupChat -> ban/scope sources -> 4 managers.
+///   H. periphery / tools     - BatchTransfer, then LOVE20Hub(Stake). APPENDED AS THE LAST CREATES
+///                              of the run, on purpose: every address here is CREATE(deployer, nonce),
+///                              so inserting them anywhere earlier would shift the nonce of every
+///                              contract deployed after them and silently change the committed
+///                              frontend address book. Keep new modules at this position.
 ///
 /// Everything after A is broadcast from one account (params: DEPLOY_ACCOUNT_INDEX, anvil #0) in a
 /// single `vm.startBroadcast()`, so the CREATE nonces are exactly the sequence above.
@@ -150,6 +177,10 @@ contract DeployLocal is DeployCore {
         address tokenActionGovManager;
         address tokenActionMainManager;
         address pair;
+        // Appended after the whole protocol stack (see the Order note in the contract doc): these two
+        // are the last CREATEs of the run, which is what keeps every address above them unchanged.
+        address batchTransfer;
+        address hub;
     }
 
     struct Params {
@@ -296,6 +327,16 @@ contract DeployLocal is DeployCore {
         );
         console2.log("TokenActionMainMgr", deployed.tokenActionMainManager);
 
+        // ---- H: periphery / tools (LAST on purpose - see the Order note above) ----
+        // BatchTransfer has no constructor arguments and no dependency on the protocol; the Hub takes
+        // only Stake and derives router/factory/launch/memberNFT/wrapped-native + the DEX fee profile
+        // from it. Nothing downstream consumes either address, so appending them here cannot move an
+        // existing address. Do not move this block above the group-chat deployment.
+        deployed.batchTransfer = address(new BatchTransfer());
+        console2.log("BatchTransfer     ", deployed.batchTransfer);
+        deployed.hub = address(new LOVE20Hub(deployed.stake));
+        console2.log("LOVE20Hub         ", deployed.hub);
+
         vm.stopBroadcast();
 
         // ---- post-deploy validation (state already on chain) ----
@@ -304,6 +345,7 @@ contract DeployLocal is DeployCore {
         _validateCore(coreConfig, deployed);
         _validateAction(deployed, params);
         _validateGroupChat(deployed, params);
+        _validatePeriphery(deployed);
 
         _writeAddresses(deployed, params);
         _logSummary(deployed);
@@ -657,6 +699,31 @@ contract DeployLocal is DeployCore {
     }
 
     /// ---------------------------------------------------------------------------------------
+    /// periphery / tools
+    /// ---------------------------------------------------------------------------------------
+    /// @dev The Hub injects exactly one dependency (Stake) and derives the rest; these checks read the
+    ///      derived graph back from the deployed hub, so a wrong Stake cannot silently produce a hub
+    ///      that quotes against another deployment's router/factory.
+    function _validatePeriphery(Deployed memory deployed) internal view {
+        require(deployed.batchTransfer.code.length != 0, "BatchTransfer has no code");
+        require(deployed.hub.code.length != 0, "LOVE20Hub has no code");
+
+        ILOVE20HubView hub = ILOVE20HubView(deployed.hub);
+        require(hub.STAKE_ADDRESS() == deployed.stake, "LOVE20Hub.STAKE mismatch");
+        require(hub.ROUTER_ADDRESS() == deployed.router, "LOVE20Hub.ROUTER mismatch");
+        require(hub.PAIR_FACTORY_ADDRESS() == deployed.factory, "LOVE20Hub.PAIR_FACTORY mismatch");
+        require(hub.LAUNCH_ADDRESS() == deployed.launch, "LOVE20Hub.LAUNCH mismatch");
+        require(hub.MEMBER_NFT_ADDRESS() == deployed.memberNFT, "LOVE20Hub.MEMBER_NFT mismatch");
+        require(hub.WRAPPED_NATIVE_ADDRESS() == deployed.weth, "LOVE20Hub.WRAPPED_NATIVE mismatch");
+        // The hub copies the DEX fee profile from Stake at construction; assert it landed as a usable
+        // profile rather than echoing a value that came from somewhere else.
+        uint256 lpRatio = hub.SWAP_FEE_FOR_LP_RATIO();
+        uint256 protocolRatio = hub.SWAP_FEE_FOR_PROTOCOL_RATIO();
+        require(lpRatio != 0, "LOVE20Hub SWAP_FEE_FOR_LP_RATIO must be non-zero");
+        require(lpRatio + protocolRatio < 1e18, "LOVE20Hub swap fee ratios must sum to less than 1e18");
+    }
+
+    /// ---------------------------------------------------------------------------------------
     /// local parameter validation
     /// ---------------------------------------------------------------------------------------
     /// @dev Mirrors the check inside ../action/script/deploy/DeployAction.s.sol: each split is in
@@ -717,6 +784,8 @@ contract DeployLocal is DeployCore {
         vm.serializeAddress(out, "TOKEN_GOV_MANAGER_ADDRESS", deployed.tokenGovManager);
         vm.serializeAddress(out, "TOKEN_ACTION_GOV_MANAGER_ADDRESS", deployed.tokenActionGovManager);
         vm.serializeAddress(out, "TOKEN_ACTION_MAIN_MANAGER_ADDRESS", deployed.tokenActionMainManager);
+        vm.serializeAddress(out, "BATCH_TRANSFER_ADDRESS", deployed.batchTransfer);
+        vm.serializeAddress(out, "HUB_ADDRESS", deployed.hub);
         string memory json = vm.serializeUint(out, "chainId", params.chainId);
         vm.writeFile(vm.envString("ADDRESSES_JSON_FILE"), json);
     }
@@ -741,5 +810,7 @@ contract DeployLocal is DeployCore {
         console2.log("WETH_ADDRESS                 ", deployed.weth);
         console2.log("UNISWAP_V2_PAIR_ADDRESS      ", deployed.pair);
         console2.log("MULTICALL3_ADDRESS           ", deployed.multicall3);
+        console2.log("BATCH_TRANSFER_ADDRESS       ", deployed.batchTransfer);
+        console2.log("HUB_ADDRESS                  ", deployed.hub);
     }
 }

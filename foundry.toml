@@ -24,7 +24,16 @@ cbor_metadata = false
 auto_detect_remappings = false
 # Sibling sources live outside this project root; solc must be allowed to read them. They are reached
 # through the committed relative symlinks in .siblings/ (see remappings.txt and README "Remappings").
-allow_paths = [".siblings", "../core", "../action", "../group-chat", "../libs", "../dex"]
+allow_paths = [
+  ".siblings",
+  "../core",
+  "../action",
+  "../group-chat",
+  "../libs",
+  "../dex",
+  "../periphery",
+  "../tools",
+]
 # The dex creation bytecode (UniswapV2 Factory/Router/Pair) is read from ../dex/build, which is a
 # gitignored build output of that repo. We never write there: the artifacts are consumed as-is and
 # their keccak hashes are asserted against the constants in that repo's DeployUniswapV2.s.sol.

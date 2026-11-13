@@ -117,7 +117,7 @@ require_tools() {
 ensure_symlinks() {
     local repo target
     mkdir -p "$ROOT/.siblings"
-    for repo in core action group-chat libs dex; do
+    for repo in core action group-chat libs dex periphery tools; do
         target="../../$repo"
         if [ ! -e "$ROOT/.siblings/$repo" ]; then
             ln -sfn "$target" "$ROOT/.siblings/$repo"
@@ -133,10 +133,10 @@ cmd_preflight() {
     ensure_symlinks
 
     local sibling
-    for sibling in core action group-chat libs dex; do
+    for sibling in core action group-chat libs dex periphery tools; do
         [ -d "$ROOT/../$sibling" ] || die "missing sibling checkout: $ROOT/../$sibling (read-only input)"
     done
-    ok "sibling checkouts present (core action group-chat libs dex)"
+    ok "sibling checkouts present (core action group-chat libs dex periphery tools)"
 
     local artifact
     for artifact in \
@@ -447,7 +447,7 @@ PY
 # ------------------------------------------------------------------------------------------------
 cmd_deploy() {
     load_params
-    step "deploy (WETH -> UniswapV2 -> core [Phase, AirdropDistributor, Launch, ...] -> action -> group-chat)"
+    step "deploy (WETH -> UniswapV2 -> core [Phase, AirdropDistributor, Launch, ...] -> action -> group-chat -> periphery/tools)"
     [ -s "$LIBRARIES_JSON_FILE" ] || die "missing $LIBRARIES_JSON_FILE - run 'make libraries' first"
     [ -s "$SNAPSHOT_ABS" ] || die "missing $AIRDROP_SNAPSHOT_FILE - run 'make fixture' first"
 
@@ -464,7 +464,7 @@ cmd_deploy() {
         --broadcast --legacy --slow \
         >"$ANVIL_DIR/deploy.log" 2>&1 \
         || { grep -v '^\s*$' "$ANVIL_DIR/deploy.log" | tail -40 >&2; die "deployment failed (see .anvil/deploy.log)"; }
-    grep -E "^(WETH|UniswapV2|Airdrop|Phase|Launch|MemberNFT|Stake|Submit|Vote|Mint|ActionTarget|LpExecutor|Group|Token)" \
+    grep -E "^(WETH|UniswapV2|Airdrop|Phase|Launch|MemberNFT|Stake|Submit|Vote|Mint|ActionTarget|LpExecutor|Group|Token|BatchTransfer|LOVE20Hub)" \
         "$ANVIL_DIR/deploy.log" | sed 's/^/  /' || true
     ok "deployed; address book written to $ADDRESSES_JSON_FILE"
 }

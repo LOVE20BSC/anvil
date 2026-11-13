@@ -9,3 +9,5 @@ action/=.siblings/action/
 group-chat/=.siblings/group-chat/
 libs/=.siblings/libs/
 dex/=.siblings/dex/
+periphery/=.siblings/periphery/
+tools/=.siblings/tools/

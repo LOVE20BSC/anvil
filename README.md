@@ -19,8 +19,8 @@ disposable chain on **8555**. Runtime state — pid file and logs — is per por
 historical flat `.anvil/` layout, every other port gets `.anvil/<port>/`. `make stop PORT=8555` /
 `make clean PORT=8555` only ever touch 8555, and `make stop` / `make clean` only touch 8545.
 
-The four sibling repositories (`core/`, `action/`, `group-chat/`, `libs/`, `dex/`) are **read-only
-inputs**. Nothing in this repo writes into them. Their Solidity sources are compiled through the
+The sibling repositories (`core/`, `action/`, `group-chat/`, `libs/`, `dex/`, `periphery/`,
+`tools/`) are **read-only inputs**. Nothing in this repo writes into them. Their Solidity sources are compiled through the
 `.siblings/*` remappings, and the UniswapV2 **Factory/Router/Pair** creation bytecode is read out of
 `dex/build/` instead of being recompiled. `WETH9Configurable` is the exception: its source
 (`dex/script/WETH9Configurable.sol`) is imported and compiled by this repo, then deployed with
@@ -76,7 +76,7 @@ Everything else (`core/out`, `action/out`, `group-chat/out`) is only needed for 
 | 5 | fresh guard | `make fresh` | deployer nonce 0 + no Multicall3 (bootstrap also requires block 0); fails loudly on a used chain |
 | 6 | Multicall3 | `make multicall3` | `0xcA11bde05977b3631167028862bE2a173976CA11` from the upstream pre-signed tx |
 | 7 | linked libraries | `make libraries` | the 4 action libraries (CREATE at deployer nonces 0..3, addresses to `export/libraries.json`) |
-| 8 | deploy | `make deploy` | WETH, UniswapV2, core (8 incl. `AirdropDistributor`), action (4), group-chat (12) |
+| 8 | deploy | `make deploy` | WETH, UniswapV2, core (8 incl. `AirdropDistributor`), action (4), group-chat (12), periphery/tools (2, appended last) |
 | 9 | seed | `make seed` | advance to the genesis claim round, airdrop claims, 5 MemberNFTs, liquidity + governance stake, ETH top-ups |
 | 10 | export | `make export` | `export/deployments/anvil31337_dev.json`, `export/abis/*.json`; nonce sequence re-checked |
 | 11 | verify | `make verify` | `cast` assertions → `export/VERIFIED.md`, non-zero exit on any failure |
@@ -124,7 +124,19 @@ TokenMainManager
 TokenGovManager
 TokenActionGovManager
 TokenActionMainManager
+BatchTransfer                   ← start of DeployLocal's appended periphery/tools block
+LOVE20Hub(Stake)
 ```
+
+**`BatchTransfer` and `LOVE20Hub` are appended at the very end, on purpose.** Every address in this
+repo is a plain `CREATE(deployer, nonce)` result, so inserting a module anywhere earlier would shift
+the nonce of every contract deployed after it and silently change the committed address book
+(`MemberNFT`, `Stake`, `Vote`, `Mint`, the executors, the group-chat stack, …). The two sibling
+modules therefore come after the whole protocol stack and before `_writeAddresses`, which is what
+keeps every pre-existing address unchanged. `BatchTransfer` (tools) has no constructor arguments and
+no protocol dependency; `LOVE20Hub` (periphery) takes only `STAKE_ADDRESS` and derives
+router/factory/launch/memberNFT/wrapped-native plus the DEX fee profile from `Stake`. Nothing
+downstream consumes either address, so the tail is the only safe place for them.
 
 **The AirdropDistributor is part of core, not of this repo.** `DeployCore._deployContracts` deploys
 it immediately after `Phase` and before `Launch`, because the `LOVE20Token` constructor mints the
@@ -189,6 +201,8 @@ starts at nonce 0 and the transaction order is fixed.
 | `TOKEN_GOV_MANAGER_ADDRESS` | TokenGovManager | `0xc5a5C42992dECbae36851359345FE25997F5C42d` | 30 |
 | `TOKEN_ACTION_GOV_MANAGER_ADDRESS` | TokenActionGovManager | `0x67d269191c92Caf3cD7723F116c85e6E9bf55933` | 31 |
 | `TOKEN_ACTION_MAIN_MANAGER_ADDRESS` | TokenActionMainManager | `0xE6E340D132b5f46d1e472DebcD681B2aBc16e57E` | 32 |
+| `BATCH_TRANSFER_ADDRESS` | BatchTransfer | `0xc3e53F4d16Ae77Db1c982e75a937B9f60FE63690` | 33 |
+| `HUB_ADDRESS` | LOVE20Hub | `0x84eA74d481Ee0A5332c457a4d796187F6Ba67fEB` | 34 |
 
 Notes:
 
@@ -220,7 +234,7 @@ Notes:
 ```text
 export/
 ├── deployments/anvil31337_dev.json    the frontend's address book
-├── abis/<Contract>.json               19 ABI arrays (top-level `abi` from the sibling out/ artifacts)
+├── abis/<Contract>.json               21 ABI arrays (top-level `abi` from the sibling out/ artifacts)
 ├── airdrop/anvil31337_dev.json        snapshot with proofs (copy of fixtures/airdrop/…)
 └── VERIFIED.md                        generated verification report with actual values
 ```
@@ -265,7 +279,10 @@ ABIs exported: `MemberNFT`, `LOVE20Token`, `Launch`, `Stake`, `Submit`, `Vote`, 
 `AirdropDistributor` (from `core/out/AirdropDistributor.sol/`), `ActionTarget`, `LpExecutor`,
 `GroupActionExecutor`, `GroupServiceExecutor`, `GroupChat`, `UniswapV2Router02`,
 `UniswapV2Factory`, `UniswapV2Pair`, `Multicall3`, plus `WETH9` (the UI needs
-`deposit()`/`withdraw()`). The old `Airdrop.json` is gone.
+`deposit()`/`withdraw()`), `BatchTransfer` (tools) and `LOVE20Hub` (periphery). The last two are
+compiled by this repo from the read-only sibling sources, so the exported ABI is the one that matches
+the bytecode this repo deployed (the siblings' own `out/` belongs to another checkout and can be
+stale or absent). The old `Airdrop.json` is gone.
 
 ABI provenance: each file is the top-level `abi` of `core|action|group-chat/out/<File>.sol/<Contract>.json`
 or `dex/build/...`. Those directories are **read**; the export script never builds in them. If one is
@@ -344,6 +361,7 @@ Read-only inputs, remapped in [`remappings.txt`](remappings.txt):
 @action/      -> .siblings/action/src/                    @forge-std/   -> .siblings/core/lib/forge-std/src/
 @group-chat/  -> .siblings/group-chat/src/                @openzeppelin/contracts/ -> .siblings/core/lib/openzeppelin-contracts/contracts/
 core/ action/ group-chat/ libs/ dex/  (non-@ prefixes, for sibling scripts/artifacts)
+periphery/ tools/                     (non-@ prefixes: LOVE20Hub and BatchTransfer sources)
 ```
 
 `.siblings/<repo>` are committed **relative symlinks** (`../../<repo>`). They are not cosmetic: with
@@ -414,7 +432,7 @@ Headline values from the verified run:
 | check | value |
 |---|---|
 | chain id | `31337` |
-| code present | all 34 exported addresses |
+| code present | all 36 exported addresses |
 | `Phase.currentPhase()` | `2` on the committed run (the seed advanced to the genesis claim round; the chain mines every second afterwards) |
 | `Phase.ORIGIN_PHASE_BLOCKS()` | `120` (= 2 min per phase at `--block-time 1`) |
 | `MemberNFT.totalSupply()` | `5` |
@@ -553,7 +571,7 @@ anvil/
 ├── Makefile                     thin wrappers over script/local.sh
 ├── foundry.toml                 solc 0.8.37/osaka/200, allow_paths, fs_permissions, no metadata
 ├── remappings.txt               sibling remappings (via .siblings/ symlinks)
-├── .siblings/{core,action,group-chat,libs,dex}   committed relative symlinks (read-only inputs)
+├── .siblings/{core,action,group-chat,libs,dex,periphery,tools}   committed relative symlinks (read-only inputs)
 ├── params/anvil31337_dev/       OUR parameter set, one file per area
 │   ├── network.params           chain id, anvil host/port/block-time/gas/base-fee
 │   ├── accounts.params          anvil mnemonic, deploy account index, seed account range
@@ -568,6 +586,7 @@ anvil/
 │   ├── local.sh                 orchestrator (preflight|fixture|anvil|stop|multicall3|libraries|deploy|seed|export|verify|build|clean|bootstrap)
 │   ├── DeployLibraries.s.sol    deploys the 4 link targets first
 │   ├── DeployLocal.s.sol        WETH + UniswapV2 + core (incl. AirdropDistributor) + action + group-chat
+│   │                            + periphery/tools (BatchTransfer, LOVE20Hub — appended last)
 │   ├── SeedFlow.s.sol           round advance, claims, MemberNFTs, liquidity via Stake, ETH top-ups
 │   ├── gen_airdrop_fixture.py   merkle tree + proofs + self-verification
 │   ├── export.py                deployment JSON + ABIs + snapshot copy
