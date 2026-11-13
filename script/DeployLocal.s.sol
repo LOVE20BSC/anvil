@@ -209,8 +209,8 @@ contract DeployLocal is DeployCore {
         // validation (chain id, all scalars, factory/router wiring, genesis airdrop config) runs
         // here - still before the first core contract is created. DeployCore also deploys the
         // AirdropDistributor itself (nonce +1) before Launch, exactly as its own script does.
-        coreConfig.factory = deployed.factory;
-        coreConfig.router = deployed.router;
+        coreConfig.dexConfig.router = deployed.router;
+        coreConfig.dexConfig.pairFactory = deployed.factory;
         _validateConfig(coreConfig);
         DeployCore.DeploymentAddresses memory core = _deployCore(coreConfig);
         deployed.token = core.token;
@@ -388,8 +388,8 @@ contract DeployLocal is DeployCore {
         // scalar parameters are read, and reading them from a params file would be exactly the
         // stale-address trap the org's committed address files keep falling into. The genesis
         // airdrop values do come from params (they are not deployment-derived).
-        config.factory = address(0);
-        config.router = address(0);
+        config.dexConfig.router = address(0);
+        config.dexConfig.pairFactory = address(0);
         config.genesisMerkleRoot = params.genesisMerkleRoot;
         config.genesisClaimDelayRounds = params.genesisClaimDelayRounds;
         config.tokenName = vm.envString("TOKEN_NAME");
@@ -417,6 +417,8 @@ contract DeployLocal is DeployCore {
         config.promisedWaitingPhasesMin = vm.envUint("PROMISED_WAITING_PHASES_MIN");
         config.promisedWaitingPhasesMax = vm.envUint("PROMISED_WAITING_PHASES_MAX");
         config.feeSettlementRatio = vm.envUint("FEE_SETTLEMENT_RATIO");
+        config.dexConfig.swapFeeForLpRatio = vm.envUint("SWAP_FEE_FOR_LP_RATIO");
+        config.dexConfig.swapFeeForProtocolRatio = vm.envUint("SWAP_FEE_FOR_PROTOCOL_RATIO");
     }
 
     /// @dev Overrides DeployCore._predictor(). DeployCore predicts MemberNFT/Vote/Mint as
@@ -484,7 +486,7 @@ contract DeployLocal is DeployCore {
         internal
         returns (DeployCore.DeploymentAddresses memory addrs)
     {
-        addrs = _deployContracts(config, IUniswapV2RouterView(config.router).WETH());
+        addrs = _deployContracts(config, IUniswapV2RouterView(config.dexConfig.router).WETH());
     }
 
     function _validateCore(DeployCore.CoreConfig memory config, Deployed memory deployed) internal view {
