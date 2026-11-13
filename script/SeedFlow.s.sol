@@ -79,7 +79,6 @@ contract SeedFlow is Script {
         uint256 liquidityMemberIndex;
         uint256 liquidityTokenAmount;
         uint256 liquidityParentTokenAmount;
-        uint256 liquiditySlippage;
         uint256 liquidityPromisedWaitingPhases;
         uint256 ethPerAccount;
         string snapshotUri;
@@ -247,7 +246,6 @@ contract SeedFlow is Script {
                 addrs.token,
                 params.liquidityTokenAmount,
                 params.liquidityParentTokenAmount,
-                params.liquiditySlippage,
                 params.liquidityPromisedWaitingPhases,
                 memberId
             );
@@ -314,7 +312,6 @@ contract SeedFlow is Script {
         params.liquidityMemberIndex = vm.envUint("SEED_LIQUIDITY_MEMBER_INDEX");
         params.liquidityTokenAmount = vm.envUint("SEED_LIQUIDITY_TOKEN_AMOUNT");
         params.liquidityParentTokenAmount = vm.envUint("SEED_LIQUIDITY_PARENT_TOKEN_AMOUNT");
-        params.liquiditySlippage = vm.envUint("SEED_LIQUIDITY_SLIPPAGE");
         params.liquidityPromisedWaitingPhases = vm.envUint("SEED_LIQUIDITY_PROMISED_WAITING_PHASES");
         params.ethPerAccount = vm.envUint("SEED_ETH_PER_ACCOUNT");
         params.snapshotUri = vm.envString("SNAPSHOT_URI");

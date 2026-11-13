@@ -23,9 +23,6 @@ SEED_MEMBER_NAME_PREFIX=Testdev-member-
 SEED_LIQUIDITY_MEMBER_INDEX=0
 SEED_LIQUIDITY_TOKEN_AMOUNT=2e23
 SEED_LIQUIDITY_PARENT_TOKEN_AMOUNT=1e20
-# 5e16 == 5%: the first liquidity add has no reserves to deviate from, so slippage is inert on the
-# first stake; it is pinned anyway so later re-runs are not accidentally loose.
-SEED_LIQUIDITY_SLIPPAGE=5e16
 SEED_LIQUIDITY_PROMISED_WAITING_PHASES=1
 # ETH handed to every seed account so a developer can send transactions from any of them without
 # leaving the frontend. 100 ETH each, out of account #0's 10,000 ETH anvil balance.
