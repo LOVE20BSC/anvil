@@ -1,0 +1,52 @@
+{
+  "comment": [
+    "Pinned sibling commits for `make bootstrap PINNED=1` (see script/pin-siblings.sh and README",
+    "'Pinned siblings'). The anvil build never uses the live sibling checkouts in this mode: it",
+    "compiles read-only `git worktree` snapshots of these commits under .siblings-pinned/, so a",
+    "sibling repository that is mid-change cannot break the local chain.",
+    "",
+    "The default `make bootstrap` (PINNED=0) ignores this file and keeps using the .siblings/",
+    "symlinks to the live checkouts - local end-to-end development still sees every sibling edit.",
+    "",
+    "How to bump: run a clean bootstrap against the live checkouts and only when it fully succeeds",
+    "(PINNED=0, `make stop && make clean && make bootstrap`) regenerate this file with",
+    "`make pin-lock`. That reads each sibling's HEAD and refuses to run while a sibling working tree",
+    "is dirty, so a lock never records a commit that does not describe the code that was built.",
+    "Then `make unpin && make pin` and re-run `make bootstrap PINNED=1` to prove the bump.",
+    "",
+    "Reference: the sha values below are the `sources.*.head` values from the last successful export",
+    "(interface-dev-dsh/src/config/abis/manifest.json), i.e. the commits the committed",
+    "export/deployments/anvil31337_dev.json was produced from."
+  ],
+  "schemaVersion": 1,
+  "repos": {
+    "core": {
+      "url": "https://github.com/LOVE20BSC/core.git",
+      "sha": "8d604a25406ba9abd2e2c7f8815cfe526d650ca0"
+    },
+    "action": {
+      "url": "https://github.com/LOVE20BSC/action.git",
+      "sha": "66e2d65697581f78b40eb6959e03ebf621a0c18f"
+    },
+    "group-chat": {
+      "url": "https://github.com/LOVE20BSC/group-chat.git",
+      "sha": "45f196648d69848b327122ac57c1528de5c4fa47"
+    },
+    "libs": {
+      "url": "https://github.com/LOVE20BSC/libs.git",
+      "sha": "65b11063133e96a54cf028aa0268c292f0d2abda"
+    },
+    "dex": {
+      "url": "https://github.com/LOVE20BSC/dex.git",
+      "sha": "31464c0b455b33ff2201490ae5b042bcb4a5bd28"
+    },
+    "periphery": {
+      "url": "https://github.com/LOVE20BSC/periphery.git",
+      "sha": "3b825a522d4ebca3cf31e1e377d420ca9cf6c575"
+    },
+    "tools": {
+      "url": "https://github.com/LOVE20BSC/tools.git",
+      "sha": "44d7f542452713a63b9865b58d4866bfd7c8c804"
+    }
+  }
+}

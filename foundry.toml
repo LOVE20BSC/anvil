@@ -23,9 +23,13 @@ bytecode_hash = "none"
 cbor_metadata = false
 auto_detect_remappings = false
 # Sibling sources live outside this project root; solc must be allowed to read them. They are reached
-# through the committed relative symlinks in .siblings/ (see remappings.txt and README "Remappings").
+# through the committed relative symlinks in .siblings/ (see remappings.txt and README "Remappings"),
+# or, for `make bootstrap PINNED=1`, through the read-only worktrees in .siblings-pinned/ (see
+# siblings.lock and README "Pinned siblings"). Both roots are declared so either mode compiles
+# without touching this file; exactly one of them is referenced by the remappings in a given run.
 allow_paths = [
   ".siblings",
+  ".siblings-pinned",
   "../core",
   "../action",
   "../group-chat",
@@ -41,6 +45,9 @@ fs_permissions = [
   { access = "read", path = "./fixtures" },
   { access = "read-write", path = "./export" },
   { access = "read", path = "./.siblings/dex/build" },
+  # PINNED=1 reads the dex creation bytecode from the hard-link snapshot taken by `make pin`
+  # (DEX_ARTIFACT_ROOT); the live path stays for the default mode.
+  { access = "read", path = "./.siblings-pinned/dex/build" },
   { access = "read", path = "../dex/build" },
 ]
 

@@ -20,6 +20,15 @@
 #   bootstrap    preflight -> fixture -> build -> anvil -> fresh -> multicall3 -> libraries ->
 #                deploy -> seed -> export -> verify -> interval mining
 #
+# Two source trees can be compiled, selected by PINNED (default 0):
+#   PINNED=0  the live sibling checkouts, reached through the committed .siblings/ symlinks. Every
+#             sibling edit is compiled immediately - the local-development default.
+#   PINNED=1  the read-only git worktrees under .siblings-pinned/, created by `make pin` from the
+#             commits in siblings.lock. Every remapping is rewritten to that tree through
+#             FOUNDRY_REMAPPINGS and the dex creation bytecode is read from the pinned snapshot, so
+#             a sibling that is mid-change cannot break the chain (see README "Pinned siblings").
+#             Requires `make pin` first; preflight refuses with the exact command when it is missing.
+#
 # The address book is only reproducible when the deployment starts from CREATE nonce 0 on a chain
 # at block 0. `bootstrap` therefore refuses to reuse a chain: a dirty chain silently produces a
 # different address set (that is exactly how the old, non-reproducible book was created). It starts
@@ -66,6 +75,41 @@ load_params() {
     for f in "${files[@]}"; do
         params_load "$PARAMS_DIR/$f.params"
     done
+
+    # Which sibling tree this run compiles: the live checkouts (default) or the pinned worktrees.
+    # Every consumer below derives its paths from SIBLINGS_PREFIX, so there is exactly one place
+    # where the two modes differ.
+    case "${PINNED:-0}" in
+        0 | 1) PINNED="${PINNED:-0}" ;;
+        *) die "PINNED must be 0 or 1 (got '${PINNED}')" ;;
+    esac
+    export PINNED
+    SIBLINGS_PREFIX=".siblings"
+    if [ "$PINNED" = "1" ]; then
+        SIBLINGS_PREFIX=".siblings-pinned"
+        # FOUNDRY_REMAPPINGS takes precedence over remappings.txt and is de-duplicated by context, so
+        # handing it every remapping rewritten to the pinned tree makes the file's live entries dead.
+        # (No .siblings/ path is referenced, so the live checkouts are not read at all.) The value is
+        # ONE REMAPPING PER LINE: forge 1.8.1 parses this variable as newline-separated, while a
+        # comma-joined value becomes a single bogus remapping (that is why -R/comma is not used here).
+        export FOUNDRY_REMAPPINGS
+        FOUNDRY_REMAPPINGS="$(sed 's#\.siblings/#.siblings-pinned/#g' "$ROOT/remappings.txt")"
+        # The dex creation bytecode comes from the gitignored ../dex/build: the pinned copy is the
+        # hard-link snapshot `make pin` took next to the pinned dex worktree.
+        export DEX_ARTIFACT_ROOT="$SIBLINGS_PREFIX/dex/build"
+        # export.py's ABI pass reads the published UniswapV2 artifacts from the same place.
+        export DEX_BUILD="$ROOT/$SIBLINGS_PREFIX/dex/build"
+        # export.py otherwise reads each sibling's own out/ for the core/action/group-chat ABIs. That
+        # directory is a build of the LIVE checkout - precisely the tree a pin is supposed to ignore -
+        # so in pinned mode read this project's own out/ instead: it is the compilation of the pinned
+        # tree (same artifact layout; source-unit names differ, ABI arrays do not care). Without this
+        # the address book would be pinned but export/abis/*.json would describe the mid-change
+        # sibling, i.e. the frontend would call the pinned bytecode with a different ABI.
+        export CORE_OUT="$ROOT/out"
+        export ACTION_OUT="$ROOT/out"
+        export GROUP_CHAT_OUT="$ROOT/out"
+    fi
+    export SIBLINGS_PREFIX
 
     # Derived, deliberately not file keys (see network.params).
     export RPC_URL="http://${ANVIL_HOST}:${ANVIL_PORT}"
@@ -126,11 +170,53 @@ ensure_symlinks() {
     done
 }
 
+# PINNED=1 builds from `.siblings-pinned/<repo>` worktrees registered by `make pin`. Nothing is
+# created here on purpose: a pin is a deliberate, recorded decision (siblings.lock) and a missing or
+# stale worktree must fail with the exact command instead of silently pinning HEAD.
+ensure_pinned() {
+    local repo sha dir head reachable
+    [ -f "$ROOT/siblings.lock" ] || die "PINNED=1 needs siblings.lock - it records the pinned commits
+    Restore it from git: git -C $ROOT checkout -- siblings.lock"
+    for repo in core action group-chat libs dex periphery tools; do
+        sha="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["repos"][sys.argv[2]]["sha"])' \
+            "$ROOT/siblings.lock" "$repo" 2>/dev/null || true)"
+        [ -n "$sha" ] || die "siblings.lock has no repos.$repo.sha
+    Fix the file (see README 'Pinned siblings') or regenerate it after a green PINNED=0 bootstrap:
+      make pin-lock"
+        dir="$ROOT/.siblings-pinned/$repo"
+        [ -d "$dir" ] || die "PINNED=1: pinned worktree missing: ${dir#"$ROOT"/} (siblings.lock wants $repo@${sha:0:7})
+    Create the pinned tree once, then re-run:
+      make pin"
+        head="$(git -C "$dir" rev-parse --verify HEAD 2>/dev/null || true)"
+        [ "$head" = "$sha" ] || die "PINNED=1: pinned worktree ${dir#"$ROOT"/} is at ${head:-<not a git worktree>}, siblings.lock wants ${sha:0:7}
+    Refresh it, then re-run:
+      make unpin && make pin"
+    done
+    local artifact
+    for artifact in \
+        core/UniswapV2Factory.sol/UniswapV2Factory.json \
+        core/UniswapV2Pair.sol/UniswapV2Pair.json \
+        periphery/UniswapV2Router02.sol/UniswapV2Router02.json; do
+        [ -s "$ROOT/.siblings-pinned/dex/build/$artifact" ] \
+            || die "PINNED=1: pinned dex artifact missing: .siblings-pinned/dex/build/$artifact
+    The pinned dex worktree has no build output; the snapshot it is read from is taken by 'make pin'.
+    Recreate it (needs the live build, see preflight):
+      make -C ../dex build && make unpin && make pin"
+    done
+    reachable="$(sed -n 's#^[^=]*=\.siblings/\(.*\)lib/\([^/]*\)/.*#\1lib/\2#p' "$ROOT/remappings.txt" | paste -sd' ' -)"
+    ok "pinned siblings verified: 7 worktrees at siblings.lock (compiled submodules: ${reachable:-none})"
+}
+
 cmd_preflight() {
     load_params
     require_tools
-    step "preflight (${PROFILE}, chain ${CHAIN_ID}, rpc ${RPC_URL})"
+    step "preflight (${PROFILE}, chain ${CHAIN_ID}, rpc ${RPC_URL}, PINNED=${PINNED})"
     ensure_symlinks
+    if [ "$PINNED" = "1" ]; then
+        ensure_pinned
+    else
+        ok "siblings: live checkouts via .siblings/ (PINNED=0)"
+    fi
 
     local sibling
     for sibling in core action group-chat libs dex periphery tools; do
@@ -138,17 +224,19 @@ cmd_preflight() {
     done
     ok "sibling checkouts present (core action group-chat libs dex periphery tools)"
 
-    local artifact
+    local artifact dex_build="../dex/build"
+    [ "$PINNED" = "1" ] && dex_build=".siblings-pinned/dex/build"
     for artifact in \
-        "../dex/build/core/UniswapV2Factory.sol/UniswapV2Factory.json" \
-        "../dex/build/core/UniswapV2Pair.sol/UniswapV2Pair.json" \
-        "../dex/build/periphery/UniswapV2Router02.sol/UniswapV2Router02.json"; do
-        [ -s "$ROOT/$artifact" ] || die "missing dex artifact: $artifact
+        core/UniswapV2Factory.sol/UniswapV2Factory.json \
+        core/UniswapV2Pair.sol/UniswapV2Pair.json \
+        periphery/UniswapV2Router02.sol/UniswapV2Router02.json; do
+        [ -s "$ROOT/$dex_build/$artifact" ] || die "missing dex artifact: $dex_build/$artifact
     Build it in a throwaway copy, or run this in the dex repo yourself:
       make -C ../dex build
-    This repo never builds ../dex for you: `make build` there writes into ../dex."
+    This repo never builds ../dex for you: `make build` there writes into ../dex.
+    PINNED=1 additionally snapshots that build output with `make pin`."
     done
-    ok "dex creation bytecode artifacts present (hash-asserted during deploy)"
+    ok "dex creation bytecode artifacts present in $dex_build (hash-asserted during deploy)"
 
     [ -s "$MULTICALL3_TX_ABS" ] || die "missing Multicall3 signed-tx fixture: $MULTICALL3_SIGNED_TX_FILE"
     local tx_sha
@@ -413,19 +501,23 @@ cmd_libraries() {
 # and leave a stale address baked into the executor bytecode. The list is static; the artifacts are
 # only used as a cross-check that the source unit names have not changed.
 link_args() {
-    python3 - "$ROOT" <<'PY'
+    # $1 is the sibling tree this run compiles (`.siblings` or `.siblings-pinned`): the linked
+    # library tuples must name the source units the compiler actually produced, so the prefix cannot
+    # be hardcoded (see the cross-check against out/'s linkReferences at the end).
+    python3 - "$ROOT" "$SIBLINGS_PREFIX" <<'PY'
 import json
 import sys
 from pathlib import Path
 
 root = Path(sys.argv[1])
+prefix = sys.argv[2]
 libs = json.loads((root / "export/libraries.json").read_text())
 names = ["GroupActionJoin", "GroupActionManager", "GroupActionVerify", "GroupRecipients"]
 entries = []
 for name in names:
     if name not in libs:
         raise SystemExit(f"export/libraries.json has no address for {name}")
-    entries.append(f".siblings/action/src/{name}.sol:{name}:{libs[name]}")
+    entries.append(f"{prefix}/action/src/{name}.sol:{name}:{libs[name]}")
 
 for artifact in ("GroupActionExecutor", "GroupServiceExecutor"):
     refs = json.loads((root / "out" / f"{artifact}.sol" / f"{artifact}.json").read_text())["bytecode"].get(
@@ -435,7 +527,7 @@ for artifact in ("GroupActionExecutor", "GroupServiceExecutor"):
         for name in contracts:
             if name not in libs:
                 raise SystemExit(f"{artifact} needs linked library {name} but it was not deployed")
-            expected = f".siblings/action/src/{name}.sol"
+            expected = f"{prefix}/action/src/{name}.sol"
             if source_unit != expected:
                 raise SystemExit(f"unexpected source unit for {name}: {source_unit} != {expected}")
 print(",".join(entries))
@@ -543,9 +635,9 @@ cmd_verify() {
 
 cmd_build() {
     load_params
-    step "build (siblings are compiled read-only)"
+    step "build (siblings are compiled read-only, from $SIBLINGS_PREFIX/)"
     forge build
-    ok "forge build"
+    ok "forge build ($SIBLINGS_PREFIX)"
 }
 
 cmd_clean() {
@@ -563,6 +655,8 @@ cmd_clean() {
     # wipe `.anvil/8555/` (the frontend e2e chain's pid/log) and cleaning 8555 must not touch the
     # developer's flat `.anvil/`. Exports/build output above are shared and are regenerated by the
     # next bootstrap.
+    # .siblings-pinned/ is NOT removed: it is a checkout with git worktree registrations in the
+    # siblings, not build output. Use `make unpin` for that (see README "Pinned siblings").
     if [ "$ANVIL_DIR" = "$ROOT/.anvil" ]; then
         if [ -d "$ANVIL_DIR" ]; then
             find "$ANVIL_DIR" -maxdepth 1 -type f -delete
@@ -595,12 +689,14 @@ cmd_bootstrap() {
     # The export is complete and deterministic; now hand the chain to the frontend with the
     # profile's block interval.
     enable_interval_mining
-    printf "\n${GREEN}bootstrap complete${NC} - chain %s at %s, address book export/deployments/%s.json\n" \
-        "$CHAIN_ID" "$RPC_URL" "$PROFILE"
+    local tree="live siblings (.siblings/)"
+    [ "$PINNED" = "1" ] && tree="pinned siblings (.siblings-pinned/, siblings.lock)"
+    printf "\n${GREEN}bootstrap complete${NC} - chain %s at %s, address book export/deployments/%s.json, compiled against %s\n" \
+        "$CHAIN_ID" "$RPC_URL" "$PROFILE" "$tree"
 }
 
 usage() {
-    sed -n '2,26p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '2,31p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 main() {

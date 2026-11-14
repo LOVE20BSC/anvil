@@ -12,6 +12,12 @@
 #   make bootstrap HOST=127.0.0.2
 #   PORT=8555 make stop | make clean | make anvil     # same port override for every target
 #   make deploy PROFILE=anvil31337_dev
+#
+# Sibling sources: `make bootstrap` compiles the live sibling checkouts through .siblings/ (every edit
+# shows up immediately). `make pin` then `make bootstrap PINNED=1` compiles the read-only worktrees
+# created from the commits in siblings.lock instead, so a sibling that is mid-change cannot break the
+# local chain. `make pin-status` shows what is pinned, `make unpin` removes the worktrees, and
+# `make pin-lock` bumps the lock (see README "Pinned siblings").
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
@@ -27,7 +33,12 @@ export ANVIL_HOST := $(HOST)
 endif
 export PROFILE
 
-.PHONY: help bootstrap build preflight fixture anvil stop fresh multicall3 libraries deploy seed export verify clean all
+# PINNED=0 (the default) is the live sibling checkouts; PINNED=1 is .siblings-pinned/ (make pin).
+# Exported so script/local.sh can branch on it for `make bootstrap PINNED=1`, exactly like PORT.
+PINNED ?= 0
+export PINNED
+
+.PHONY: help bootstrap build preflight fixture anvil stop fresh multicall3 libraries deploy seed export verify clean all pin pin-status unpin pin-lock
 
 help:
 	@echo "LOVE20BSC local chain (profile: $(PROFILE))"
@@ -52,6 +63,13 @@ help:
 	@echo "                     selected port's runtime state (default 8545 keeps the flat .anvil/ layout)"
 	@echo ""
 	@echo "  make bootstrap PORT=8555    run on another port (e2e chain; runtime state .anvil/8555/)"
+	@echo ""
+	@echo "  Pinned siblings (opt-in; PINNED=0 below is the default and unchanged):"
+	@echo "    make pin                        create .siblings-pinned/<repo> git worktrees at siblings.lock"
+	@echo "    make pin-status                 lock vs pinned vs live HEAD, per sibling repo"
+	@echo "    make bootstrap PINNED=1         build/deploy from the pinned worktrees instead of .siblings/"
+	@echo "    make unpin                      git worktree remove them (Sibling repos stay untouched)"
+	@echo "    make pin-lock                   rewrite siblings.lock from the live HEADs (bump; refuses if dirty)"
 
 bootstrap:
 	@$(LOCAL) bootstrap
@@ -96,3 +114,17 @@ verify:
 
 clean:
 	@$(LOCAL) clean
+
+# Pinned siblings (see README "Pinned siblings"). `make clean` deliberately leaves .siblings-pinned/
+# alone: those are checkouts with git-worktree registrations, not build output.
+pin:
+	@bash script/pin-siblings.sh pin
+
+pin-status:
+	@bash script/pin-siblings.sh status
+
+unpin:
+	@bash script/pin-siblings.sh clean
+
+pin-lock:
+	@bash script/pin-siblings.sh relock

@@ -135,10 +135,22 @@ contract DeployLocal is DeployCore {
 
     // The .siblings/ symlink is the same directory as ../dex; it is used because foundry.toml declares
     // fs_permissions on this path (see remappings.txt for why the symlink exists at all).
-    string internal constant FACTORY_ARTIFACT = ".siblings/dex/build/core/UniswapV2Factory.sol/UniswapV2Factory.json";
-    string internal constant ROUTER_ARTIFACT =
-        ".siblings/dex/build/periphery/UniswapV2Router02.sol/UniswapV2Router02.json";
-    string internal constant PAIR_ARTIFACT = ".siblings/dex/build/core/UniswapV2Pair.sol/UniswapV2Pair.json";
+    //
+    // `make bootstrap PINNED=1` compiles a read-only snapshot of the dex commit in siblings.lock, and
+    // that worktree has no build output (build/ is gitignored in ../dex). `make pin` therefore
+    // hard-link copies it to .siblings-pinned/dex/build and script/local.sh exports
+    // DEX_ARTIFACT_ROOT to point here; the creation-bytecode hashes asserted below are unchanged, so
+    // a pin that does not match the artifacts still fails loudly. Unset == the live path, byte for
+    // byte the same string as before, so the default mode is untouched.
+    string internal constant DEFAULT_DEX_ARTIFACT_ROOT = ".siblings/dex/build";
+
+    function _dexArtifact(string memory relativePath) internal view returns (string memory) {
+        return string.concat(vm.envOr("DEX_ARTIFACT_ROOT", DEFAULT_DEX_ARTIFACT_ROOT), relativePath);
+    }
+
+    string internal constant FACTORY_ARTIFACT = "/core/UniswapV2Factory.sol/UniswapV2Factory.json";
+    string internal constant ROUTER_ARTIFACT = "/periphery/UniswapV2Router02.sol/UniswapV2Router02.json";
+    string internal constant PAIR_ARTIFACT = "/core/UniswapV2Pair.sol/UniswapV2Pair.json";
 
     // MAX_FEE_SETTLEMENT_RATIO (2.5e15) is inherited from DeployCore and enforced by its
     // _validateConfig, so it is not redeclared here.
@@ -229,10 +241,12 @@ contract DeployLocal is DeployCore {
         require(deployed.weth.code.length != 0, "WETH deployment failed");
         console2.log("WETH              ", deployed.weth);
 
-        deployed.factory = _deployArtifact(FACTORY_ARTIFACT, abi.encode(params.feeToSetter), FACTORY_CREATION_HASH);
+        deployed.factory =
+            _deployArtifact(_dexArtifact(FACTORY_ARTIFACT), abi.encode(params.feeToSetter), FACTORY_CREATION_HASH);
         console2.log("UniswapV2Factory  ", deployed.factory);
-        deployed.router =
-            _deployArtifact(ROUTER_ARTIFACT, abi.encode(deployed.factory, deployed.weth), ROUTER_CREATION_HASH);
+        deployed.router = _deployArtifact(
+            _dexArtifact(ROUTER_ARTIFACT), abi.encode(deployed.factory, deployed.weth), ROUTER_CREATION_HASH
+        );
         console2.log("UniswapV2Router02 ", deployed.router);
 
         // ---- E: core, through the org's own deploy body ----
@@ -498,7 +512,8 @@ contract DeployLocal is DeployCore {
     function _validateDex(Deployed memory deployed, Params memory params) internal view returns (address pair) {
         // The pair's creation code is what Router02's PairCreated CREATE2 embeds; assert it too so a
         // stale ../dex/build cannot silently produce a factory whose pairs the Router cannot predict.
-        bytes memory pairCreation = vm.parseBytes(vm.parseJsonString(vm.readFile(PAIR_ARTIFACT), ".bytecode.object"));
+        bytes memory pairCreation =
+            vm.parseBytes(vm.parseJsonString(vm.readFile(_dexArtifact(PAIR_ARTIFACT)), ".bytecode.object"));
         require(keccak256(pairCreation) == PAIR_INIT_CODE_HASH, "pair artifact hash mismatch");
 
         require(IUniswapV2RouterView(deployed.router).factory() == deployed.factory, "router.factory mismatch");

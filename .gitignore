@@ -9,6 +9,12 @@
 # the committed relative symlinks in .siblings/ (NOT ignored - they are the remapping anchors).
 /lib/
 
+# Pinned siblings (`make pin`): read-only `git worktree` snapshots of the sibling checkouts at the
+# commits in siblings.lock. Build input only, never committed - and ignored as a whole so `make pin`
+# leaves this repo's git status clean (the worktrees themselves are registered in the siblings' own
+# .git/worktrees/, see README "Pinned siblings").
+/.siblings-pinned/
+
 # Local chain runtime state and logs
 /.anvil/
 *.log

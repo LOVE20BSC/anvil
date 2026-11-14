@@ -381,6 +381,84 @@ Deliberately **not** done:
 * No keystore, no `.account` file: the deploy key is derived from the anvil mnemonic in
   `params/anvil31337_dev/accounts.params`.
 
+### Pinned siblings (opt-in: `make bootstrap PINNED=1`)
+
+The default build compiles the **live** sibling checkouts, so a sibling that is mid-change breaks
+everything: on 2026-11-14 core's `IStake.stakeLiquidity` gained a `deadline` parameter while the
+anvil scripts (and the live `periphery` checkout) still called the five-argument form, so every
+port's `make bootstrap` stopped compiling until core was consistent again. Pinned siblings remove
+that coupling without changing the default: compile a **read-only `git worktree` snapshot** of seven
+sibling commits instead of the live trees.
+
+```bash
+make pin                                     # create .siblings-pinned/<repo> at the commits in siblings.lock
+make pin-status                              # lock vs pinned vs live HEAD, per repo (+ whether PINNED=1 is ready)
+make bootstrap PINNED=1 PORT=8580            # build/deploy from the pinned worktrees; 8545 is never touched
+make unpin                                   # git worktree remove + drop .siblings-pinned/
+make pin-lock                                # bump: rewrite siblings.lock from the live HEADs
+```
+
+`siblings.lock` (committed) records the seven `url`/`sha` pairs. Its baseline is the
+`sources.*.head` of the last successful export (`interface-dev-dsh/src/config/abis/manifest.json`),
+i.e. the commits the committed `export/deployments/anvil31337_dev.json` was produced from — with the
+2026-11-14 lock that is core `8d604a2`, action `66e2d65`, group-chat `45f1966`, libs `65b1106`,
+dex `31464c0`, periphery `3b825a5`, tools `44d7f54`.
+
+What differs in PINNED=1 (all of it inside `script/local.sh`; `PINNED=0` is the default path and
+keeps the old behaviour):
+
+* **Remappings.** `FOUNDRY_REMAPPINGS` is set to every line of `remappings.txt` rewritten
+  `.siblings/` -> `.siblings-pinned/`. Forge gives config/env remappings precedence over
+  `remappings.txt` and de-duplicates by context, so the live entries become dead and no live sibling
+  file is read. (The value is newline-separated: forge 1.8.1 parses one remapping per line, while a
+  comma-joined value is parsed as a single bogus remapping.)
+* **dex creation bytecode.** `build/` is gitignored in `../dex`, so the pinned worktree has none.
+  `make pin` hard-link copies `../dex/build` next to the pinned dex worktree and the deploy script
+  reads it through `DEX_ARTIFACT_ROOT` (the three creation-code hashes are still asserted, so a
+  snapshot that does not match the pinned dex commit fails loudly).
+* **ABI export.** `export.py` otherwise reads each sibling's own `out/`; in pinned mode it reads
+  *this* project's `out/`, which is the compilation of the pinned tree. Without that the address book
+  would be pinned but `export/abis/*.json` would describe the mid-change live sibling.
+* **preflight** verifies all seven worktrees exist at the lock's commits and that the pinned dex
+  snapshot is complete. It never creates anything: a missing/stale pin fails with the exact command
+  (`make pin`, or `make unpin && make pin`).
+
+Where the worktrees live and why `unpin` is not `rm -rf`:
+
+* The checkouts are `anvil/.siblings-pinned/<repo>` (gitignored), but each one is registered in the
+  **sibling's own** `.git/worktrees/<repo>` by `git worktree add --detach`. Deleting the directory
+  would leave that registration behind, so `make unpin` uses `git worktree remove --force` (plus
+  `git worktree prune`). Registering a worktree does not modify the sibling's working tree or its
+  `git status`; `make unpin` prints the sibling statuses to prove it.
+* Sibling `lib/` are submodules and `git worktree add` does not populate them. `make pin` copies only
+  the submodules the pinned commit and the live checkout *agree* on (hard links: same bytes, no
+  copy), and fails for a submodule the build actually reads if the live checkout is at another
+  commit. Today that condition holds for core's `forge-std`/`openzeppelin-contracts` (the only ones
+  any remapping reaches); `action/lib/core` and `periphery/lib/core` are ahead of the pin because the
+  live core was bumped, and they are skipped with a warning (no remapping reads them, so nothing is
+  compiled from them).
+
+Bump procedure (`siblings.lock` is the only thing that moves):
+
+```bash
+# 1. prove the live tree actually works, from scratch
+make stop && make clean && make bootstrap
+# 2. record its commits (refuses while any sibling working tree is dirty: a lock stores commits, the
+#    build compiles the working tree)
+make pin-lock
+# 3. materialise the new pin and prove it reproduces the same chain
+make unpin && make pin
+make bootstrap PINNED=1 PORT=8580
+# 4. compare: export/deployments/anvil31337_dev.json must be identical to the committed one
+git status --porcelain export/deployments/anvil31337_dev.json
+make stop PORT=8580
+```
+
+Leftover risks: `make pin` never fetches (it only uses commits already present in the local
+checkouts, and says so when the pinned sha is missing); the pinned tree is a snapshot, so a sibling
+`lib/` submodule that is updated later does not update the pin — that is what `make pin-lock` is for;
+and `make clean` deliberately leaves `.siblings-pinned/` alone (it is a checkout, not build output).
+
 ---
 
 ## 9. Airdrop (core `AirdropDistributor`)
@@ -571,7 +649,9 @@ anvil/
 ├── Makefile                     thin wrappers over script/local.sh
 ├── foundry.toml                 solc 0.8.37/osaka/200, allow_paths, fs_permissions, no metadata
 ├── remappings.txt               sibling remappings (via .siblings/ symlinks)
+├── siblings.lock                pinned commits for `make bootstrap PINNED=1` (url + sha per sibling)
 ├── .siblings/{core,action,group-chat,libs,dex,periphery,tools}   committed relative symlinks (read-only inputs)
+├── .siblings-pinned/<repo>      gitignored `git worktree` snapshots created by `make pin` (PINNED=1)
 ├── params/anvil31337_dev/       OUR parameter set, one file per area
 │   ├── network.params           chain id, anvil host/port/block-time/gas/base-fee
 │   ├── accounts.params          anvil mnemonic, deploy account index, seed account range
@@ -584,6 +664,7 @@ anvil/
 │   └── seed.params              how many members, liquidity, ETH, intended SNAPSHOT_URI
 ├── script/
 │   ├── local.sh                 orchestrator (preflight|fixture|anvil|stop|multicall3|libraries|deploy|seed|export|verify|build|clean|bootstrap)
+│   ├── pin-siblings.sh          make pin / pin-status / unpin / pin-lock (see "Pinned siblings")
 │   ├── DeployLibraries.s.sol    deploys the 4 link targets first
 │   ├── DeployLocal.s.sol        WETH + UniswapV2 + core (incl. AirdropDistributor) + action + group-chat
 │   │                            + periphery/tools (BatchTransfer, LOVE20Hub — appended last)
