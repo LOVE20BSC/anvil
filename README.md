@@ -298,7 +298,7 @@ transactions. No `deal`, no `anvil_setStorageAt`, no state forgery anywhere in t
 
 | What | How | Result on the verified run |
 |---|---|---|
-| ETH | account #0 tops every seeded account up to `SEED_ETH_PER_ACCOUNT` (100 ETH) | 5 accounts ≥ 100 ETH (anvil already funds them, so usually a no-op) |
+| ETH | account #0 tops every seeded account up to `SEED_ETH_PER_ACCOUNT` (100 ETH); the liquidity member's target is `SEED_ETH_PER_ACCOUNT + SEED_LIQUIDITY_PARENT_TOKEN_AMOUNT` (100 ETH, which it wraps and stakes) `+ SEED_GAS_ALLOWANCE` (0.2 ETH for the gas it signs), i.e. 200.2 ETH — `SEED_ETH_PER_ACCOUNT` is the balance the seed must leave behind, not the amount it hands out | 5 accounts ≥ 100 ETH (anvil already funds them, so usually a no-op) |
 | Claim round | `script/local.sh` mines up to `claimableFromRound` (= max(phase at deploy,1) + `GENESIS_AIRDROP_CLAIM_DELAY_ROUNDS` = **2**) before seeding; `SeedFlow` re-asserts it | bootstrap ends in **phase 2** (block 121), not phase 1 |
 | Airdrop claim | each of the first `SEED_MEMBER_COUNT` (5) accounts calls `AirdropDistributor.claim(token, share, proof)` with its own key (`msg.sender` is the claimer) | 5 × 1e26 tokens claimed; accounts 5–9 left unclaimed for the **claim UI** |
 | MemberNFT | each of the 5 claims, then `approve` + `mint("Testdev-member-<i>")` (the name is stored verbatim) | 5 identities, ids 1–5, 9e20 burned per mint |

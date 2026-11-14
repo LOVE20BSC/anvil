@@ -34,7 +34,12 @@ interface IUniswapV2PairView {
 /// What this script does, in order, all as the real end users (each seeded account signs its own
 /// transactions - no `deal`, no `anvil_setStorageAt`, no state forgery):
 ///
-///   1. ETH top-up: every seeded account is brought to at least SEED_ETH_PER_ACCOUNT. anvil already
+///   1. ETH top-up: every seeded account is brought to at least SEED_ETH_PER_ACCOUNT, which is the
+///      *spendable* balance the chain hands a developer - it is not a closing balance. The account at
+///      SEED_LIQUIDITY_MEMBER_INDEX gets a higher target: SEED_ETH_PER_ACCOUNT plus the
+///      SEED_LIQUIDITY_PARENT_TOKEN_AMOUNT it is about to wrap into WETH and stake, plus a fixed
+///      SEED_GAS_ALLOWANCE for the transactions it signs afterwards. Without that, step 4 would spend
+///      the very ETH step 1 just handed over and the final assertions could never hold. anvil already
 ///      funds its own accounts, so on the default flags this is usually a no-op - it exists so the
 ///      same script works when someone lowers `--balance`.
 ///   2. Airdrop claim: every seeded account claims its fixture share with its own proof through
@@ -85,6 +90,15 @@ contract SeedFlow is Script {
     }
 
     uint256 internal constant WAD = 1e18;
+
+    /// @dev ETH held back on top of the liquidity member's funding target for the gas IT signs after
+    ///      step 1: AirdropDistributor.claim, token approve, MemberNFT.mint, token approve + WETH
+    ///      approve, WETH.deposit (the wrap) and Stake.stakeLiquidity - seven transactions. Measured on
+    ///      the verified low-balance run: 1,335,352 gas for that account; at the ~99 gwei gas price
+    ///      forge uses for the local broadcast that is 0.1322 ETH, so 0.2 ether leaves ~50% headroom.
+    ///      It is a fixed allowance, not a gas estimate: the funding target - and therefore the
+    ///      top-up amount - must stay the same on every run of the same chain.
+    uint256 public constant SEED_GAS_ALLOWANCE = 0.2 ether;
 
     function runSeed() external {
         SeedParams memory params = _loadParams();
@@ -139,14 +153,34 @@ contract SeedFlow is Script {
     // ------------------------------------------------------------------------------------------
     // step 1 - ETH
     // ------------------------------------------------------------------------------------------
+    /// @dev The balance a seeded account must reach in step 1. SEED_ETH_PER_ACCOUNT is the money the
+    ///      account is expected to still hold once seeding is over (the assertions in
+    ///      `_assertSeedState` and script/verify.sh require exactly that). The liquidity member
+    ///      therefore needs more: it burns SEED_LIQUIDITY_PARENT_TOKEN_AMOUNT for the WETH it stakes
+    ///      (that ETH leaves the wallet for good) and it pays gas for everything it signs afterwards.
+    ///      Pure function so test/SeedFlowFunding.t.sol can pin the arithmetic without a chain.
+    function seedEthTarget(
+        uint256 ethPerAccount,
+        uint256 liquidityParentTokenAmount,
+        uint256 liquidityMemberIndex,
+        uint256 index
+    ) public pure returns (uint256 target) {
+        if (index == liquidityMemberIndex) {
+            return ethPerAccount + liquidityParentTokenAmount + SEED_GAS_ALLOWANCE;
+        }
+        return ethPerAccount;
+    }
+
     function _fundEth(uint256 deployerKey, address deployer, SnapshotEntry[] memory entries, SeedParams memory params)
         internal
     {
         vm.startBroadcast(deployerKey);
         for (uint256 i = 0; i < params.memberCount; i++) {
             address account = entries[i].account;
-            if (account.balance < params.ethPerAccount) {
-                uint256 topUp = params.ethPerAccount - account.balance;
+            uint256 target =
+                seedEthTarget(params.ethPerAccount, params.liquidityParentTokenAmount, params.liquidityMemberIndex, i);
+            if (account.balance < target) {
+                uint256 topUp = target - account.balance;
                 (bool sent,) = account.call{value: topUp}("");
                 require(sent, "ETH top-up failed");
                 console2.log("  eth topped up:", account, topUp);

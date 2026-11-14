@@ -26,6 +26,14 @@ SEED_LIQUIDITY_PARENT_TOKEN_AMOUNT=1e20
 SEED_LIQUIDITY_PROMISED_WAITING_PHASES=1
 # ETH handed to every seed account so a developer can send transactions from any of them without
 # leaving the frontend. 100 ETH each, out of account #0's 10,000 ETH anvil balance.
+#
+# This is STARTING money, not a closing balance. SeedFlow tops every account up to this value, then
+# the seed spends some of it: the account at SEED_LIQUIDITY_MEMBER_INDEX wraps
+# SEED_LIQUIDITY_PARENT_TOKEN_AMOUNT into WETH and stakes it (that ETH leaves the wallet) and every
+# account pays gas. The final assertions in script/SeedFlow.s.sol and script/verify.sh require every
+# seed account to still hold >= SEED_ETH_PER_ACCOUNT afterwards, so the liquidity member is funded to
+# SEED_ETH_PER_ACCOUNT + SEED_LIQUIDITY_PARENT_TOKEN_AMOUNT + a fixed gas allowance instead of just
+# SEED_ETH_PER_ACCOUNT (see SeedFlow.seedEthTarget / SEED_GAS_ALLOWANCE).
 SEED_ETH_PER_ACCOUNT=100e18
 # Snapshot URI the launcher SHOULD register on chain via
 # AirdropDistributor.updateSnapshotUri(genesisToken, SNAPSHOT_URI). It is the URL the frontend dev
