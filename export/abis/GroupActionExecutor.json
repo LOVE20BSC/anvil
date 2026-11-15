@@ -6,11 +6,6 @@
         "name": "actionTargetAddress",
         "type": "address",
         "internalType": "address"
-      },
-      {
-        "name": "splits",
-        "type": "uint256[]",
-        "internalType": "uint256[]"
       }
     ],
     "stateMutability": "nonpayable"
@@ -50,19 +45,6 @@
         "name": "",
         "type": "address",
         "internalType": "address"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "SPLITS",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256[]",
-        "internalType": "uint256[]"
       }
     ],
     "stateMutability": "view"
@@ -257,7 +239,7 @@
   },
   {
     "type": "function",
-    "name": "activationStakeAmount",
+    "name": "activationStakeByActionId",
     "inputs": [
       {
         "name": "tokenAddress",
@@ -266,6 +248,59 @@
       },
       {
         "name": "actionId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "activationStakeByGroupId",
+    "inputs": [
+      {
+        "name": "tokenAddress",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "groupId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "activationStakeByGroupIdByRound",
+    "inputs": [
+      {
+        "name": "tokenAddress",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "round",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "groupId",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -1374,35 +1409,6 @@
   },
   {
     "type": "function",
-    "name": "lockedVerifierId",
-    "inputs": [
-      {
-        "name": "tokenAddress",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "actionId",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "round",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
     "name": "maxJoinAmount",
     "inputs": [
       {
@@ -1911,6 +1917,54 @@
   },
   {
     "type": "function",
+    "name": "requiredActivationStake",
+    "inputs": [
+      {
+        "name": "tokenAddress",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "actionId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "requiredVerifierStake",
+    "inputs": [
+      {
+        "name": "tokenAddress",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "actionId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "setGroupConfig",
     "inputs": [
       {
@@ -1966,7 +2020,7 @@
   },
   {
     "type": "function",
-    "name": "staked",
+    "name": "stopVerifierApplication",
     "inputs": [
       {
         "name": "tokenAddress",
@@ -1977,40 +2031,15 @@
         "name": "actionId",
         "type": "uint256",
         "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "stakedByMemberId",
-    "inputs": [
-      {
-        "name": "tokenAddress",
-        "type": "address",
-        "internalType": "address"
       },
       {
-        "name": "memberId",
+        "name": "verifierId",
         "type": "uint256",
         "internalType": "uint256"
       }
     ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -2125,17 +2154,31 @@
   },
   {
     "type": "function",
-    "name": "topVerifiers",
+    "name": "totalActivationStake",
     "inputs": [
       {
         "name": "tokenAddress",
         "type": "address",
         "internalType": "address"
-      },
+      }
+    ],
+    "outputs": [
       {
-        "name": "actionId",
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "totalActivationStakeByRound",
+    "inputs": [
+      {
+        "name": "tokenAddress",
+        "type": "address",
+        "internalType": "address"
       },
       {
         "name": "round",
@@ -2145,14 +2188,9 @@
     ],
     "outputs": [
       {
-        "name": "verifierIds",
-        "type": "uint256[]",
-        "internalType": "uint256[]"
-      },
-      {
-        "name": "voteAmounts",
-        "type": "uint256[]",
-        "internalType": "uint256[]"
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ],
     "stateMutability": "view"
@@ -2175,25 +2213,6 @@
         "name": "round",
         "type": "uint256",
         "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "totalStaked",
-    "inputs": [
-      {
-        "name": "tokenAddress",
-        "type": "address",
-        "internalType": "address"
       }
     ],
     "outputs": [
@@ -2377,6 +2396,45 @@
   },
   {
     "type": "function",
+    "name": "verifier",
+    "inputs": [
+      {
+        "name": "tokenAddress",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "actionId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "round",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "verifierId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "applicationId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "voteAmount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "verifierApplication",
     "inputs": [
       {
@@ -2420,6 +2478,31 @@
             "name": "description",
             "type": "string",
             "internalType": "string"
+          },
+          {
+            "name": "stoppedRound",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "withdrawnRound",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "pendingRound",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "punishmentAmount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "failedRounds",
+            "type": "uint256[]",
+            "internalType": "uint256[]"
           }
         ]
       }
@@ -2476,11 +2559,205 @@
             "name": "description",
             "type": "string",
             "internalType": "string"
+          },
+          {
+            "name": "stoppedRound",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "withdrawnRound",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "pendingRound",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "punishmentAmount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "failedRounds",
+            "type": "uint256[]",
+            "internalType": "uint256[]"
           }
         ]
       },
       {
         "name": "totalCount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "verifierApplicationsByRound",
+    "inputs": [
+      {
+        "name": "tokenAddress",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "actionId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "round",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "offset",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "limit",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "reverse",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "applications",
+        "type": "tuple[]",
+        "internalType": "struct VerifierApplication[]",
+        "components": [
+          {
+            "name": "applicationId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "verifierId",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "description",
+            "type": "string",
+            "internalType": "string"
+          },
+          {
+            "name": "stoppedRound",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "withdrawnRound",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "pendingRound",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "punishmentAmount",
+            "type": "uint256",
+            "internalType": "uint256"
+          },
+          {
+            "name": "failedRounds",
+            "type": "uint256[]",
+            "internalType": "uint256[]"
+          }
+        ]
+      },
+      {
+        "name": "voteAmounts",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      },
+      {
+        "name": "totalCount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "verifierElectedRounds",
+    "inputs": [
+      {
+        "name": "tokenAddress",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "actionId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "applicationId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "offset",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "limit",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "reverse",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "rounds",
+        "type": "uint256[]",
+        "internalType": "uint256[]"
+      },
+      {
+        "name": "totalCount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "verifierPunishmentRatio",
+    "inputs": [
+      {
+        "name": "tokenAddress",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "actionId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -2503,30 +2780,6 @@
       },
       {
         "name": "verifierId",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
-  },
-  {
-    "type": "function",
-    "name": "verifierStakeAmount",
-    "inputs": [
-      {
-        "name": "tokenAddress",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "actionId",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -2737,6 +2990,12 @@
       },
       {
         "name": "verifierStakeAmount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "verifierPunishmentRatio",
         "type": "uint256",
         "indexed": false,
         "internalType": "uint256"
@@ -3388,6 +3647,123 @@
   },
   {
     "type": "event",
+    "name": "VerifierApplicationDescriptionUpdated",
+    "inputs": [
+      {
+        "name": "tokenAddress",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "actionId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "applicationId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "effectiveRound",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "description",
+        "type": "string",
+        "indexed": false,
+        "internalType": "string"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "VerifierApplicationPunished",
+    "inputs": [
+      {
+        "name": "tokenAddress",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "actionId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "applicationId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "verifierId",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "failedRounds",
+        "type": "uint256[]",
+        "indexed": false,
+        "internalType": "uint256[]"
+      },
+      {
+        "name": "burnedAmount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "VerifierApplicationStopped",
+    "inputs": [
+      {
+        "name": "tokenAddress",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "actionId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "verifierId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      },
+      {
+        "name": "applicationId",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      },
+      {
+        "name": "round",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "VerifierApplicationSubmitted",
     "inputs": [
       {
@@ -3437,37 +3813,6 @@
         "type": "string",
         "indexed": false,
         "internalType": "string"
-      }
-    ],
-    "anonymous": false
-  },
-  {
-    "type": "event",
-    "name": "VerifierLocked",
-    "inputs": [
-      {
-        "name": "tokenAddress",
-        "type": "address",
-        "indexed": true,
-        "internalType": "address"
-      },
-      {
-        "name": "actionId",
-        "type": "uint256",
-        "indexed": true,
-        "internalType": "uint256"
-      },
-      {
-        "name": "verifierId",
-        "type": "uint256",
-        "indexed": true,
-        "internalType": "uint256"
-      },
-      {
-        "name": "round",
-        "type": "uint256",
-        "indexed": false,
-        "internalType": "uint256"
       }
     ],
     "anonymous": false
@@ -3606,6 +3951,49 @@
   },
   {
     "type": "error",
+    "name": "ApplicationOverdue",
+    "inputs": [
+      {
+        "name": "applicationId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "round",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ApplicationStillResponsible",
+    "inputs": [
+      {
+        "name": "applicationId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "round",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ApplicationStopped",
+    "inputs": [
+      {
+        "name": "applicationId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "BatchLengthMismatch",
     "inputs": [
       {
@@ -3663,6 +4051,22 @@
       },
       {
         "name": "maxLength",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "DuplicateVerificationKey",
+    "inputs": [
+      {
+        "name": "index",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "previousIndex",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -3775,6 +4179,22 @@
       },
       {
         "name": "round",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "InexactJoinTokenTransfer",
+    "inputs": [
+      {
+        "name": "expected",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "received",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -3898,6 +4318,17 @@
       },
       {
         "name": "length",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "InvalidVerifierPunishmentRatio",
+    "inputs": [
+      {
+        "name": "value",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -4071,6 +4502,17 @@
   },
   {
     "type": "error",
+    "name": "ReapplicationInStoppedRound",
+    "inputs": [
+      {
+        "name": "round",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "ReentrancyGuardReentrantCall",
     "inputs": []
   },
@@ -4143,32 +4585,6 @@
       },
       {
         "name": "currentRound",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ]
-  },
-  {
-    "type": "error",
-    "name": "RoundVerifierLocked",
-    "inputs": [
-      {
-        "name": "tokenAddress",
-        "type": "address",
-        "internalType": "address"
-      },
-      {
-        "name": "actionId",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "round",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "lockedVerifierId",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -4346,6 +4762,17 @@
   },
   {
     "type": "error",
+    "name": "VerificationKeyEmpty",
+    "inputs": [
+      {
+        "name": "index",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "VerificationKeyTooLong",
     "inputs": [
       {
@@ -4388,23 +4815,7 @@
   },
   {
     "type": "error",
-    "name": "VerifierNotOpen",
-    "inputs": [
-      {
-        "name": "verifierId",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "round",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ]
-  },
-  {
-    "type": "error",
-    "name": "VerifierNotRanked",
+    "name": "VerifierNotElected",
     "inputs": [
       {
         "name": "verifierId",

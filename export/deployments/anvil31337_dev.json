@@ -246,11 +246,6 @@
   },
   "network": "anvil31337_dev",
   "params": {
-    "groupActionSplits": [
-      "100000000000000000",
-      "400000000000000000",
-      "700000000000000000"
-    ],
     "phaseOriginBlocks": 1,
     "phaseOriginPhaseBlocks": 120,
     "phaseTargetSeconds": 120,

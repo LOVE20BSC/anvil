@@ -985,6 +985,22 @@
   },
   {
     "type": "error",
+    "name": "RoundNotStarted",
+    "inputs": [
+      {
+        "name": "requiredRound",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "currentRound",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "TargetDataExecutorMismatch",
     "inputs": [
       {
