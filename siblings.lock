@@ -22,15 +22,15 @@
   "repos": {
     "core": {
       "url": "https://github.com/LOVE20BSC/core.git",
-      "sha": "8d604a25406ba9abd2e2c7f8815cfe526d650ca0"
+      "sha": "b8950bcc1bb128d7019e25f97151ee760581da6a"
     },
     "action": {
       "url": "https://github.com/LOVE20BSC/action.git",
-      "sha": "66e2d65697581f78b40eb6959e03ebf621a0c18f"
+      "sha": "b05600ca7cf23f6478a141cae461594af6eea6f8"
     },
     "group-chat": {
       "url": "https://github.com/LOVE20BSC/group-chat.git",
-      "sha": "45f196648d69848b327122ac57c1528de5c4fa47"
+      "sha": "fbec4777ee828740bf226600cfdebe8d1b7c93fc"
     },
     "libs": {
       "url": "https://github.com/LOVE20BSC/libs.git",
@@ -42,7 +42,7 @@
     },
     "periphery": {
       "url": "https://github.com/LOVE20BSC/periphery.git",
-      "sha": "3b825a522d4ebca3cf31e1e377d420ca9cf6c575"
+      "sha": "fc6ed10e0284a477f3bfd75245af710384836fad"
     },
     "tools": {
       "url": "https://github.com/LOVE20BSC/tools.git",
