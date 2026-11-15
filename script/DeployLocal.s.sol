@@ -22,7 +22,6 @@ import {GroupActionExecutor} from "action/src/GroupActionExecutor.sol";
 import {GroupServiceExecutor} from "action/src/GroupServiceExecutor.sol";
 import {IActionExecutor} from "@action/interfaces/IActionExecutor.sol";
 import {IActionTarget} from "@action/interfaces/IActionTarget.sol";
-import {IGroupActionExecutor} from "@action/interfaces/IGroupActionExecutor.sol";
 import {IGroupServiceExecutor} from "@action/interfaces/IGroupServiceExecutor.sol";
 
 // group-chat
@@ -206,8 +205,8 @@ contract DeployLocal is DeployCore {
         bytes32 genesisMerkleRoot;
         uint256 genesisClaimDelayRounds;
         uint256 totalShare;
-        // action / group-chat
-        uint256[] splits;
+        // group-chat (the action executors take no local parameter any more: GroupActionExecutor's
+        // constructor is (actionTarget) only since ../action 652c270 removed the split schedule)
         uint256 actionRecentRounds;
         uint256 maxAdminIds;
         uint256 minSupportToOpposeMultiplier;
@@ -222,14 +221,13 @@ contract DeployLocal is DeployCore {
     function runLocal() external returns (Deployed memory deployed) {
         Params memory params = _loadParams();
         // Only the parameters that do not depend on a deployment can be checked before broadcasting:
-        // a wrong chain id, a missing Multicall3, an empty split list or a mismatched airdrop
-        // snapshot must not cost a transaction. Everything that needs a deployed address (factory,
+        // a wrong chain id, a missing Multicall3 or a mismatched airdrop snapshot must not cost a
+        // transaction. Everything that needs a deployed address (factory,
         // router) is validated as soon as that address exists - still before the contract that
         // consumes it is created.
         require(block.chainid == params.chainId, "Chain ID mismatch");
         require(params.deployer != address(0), "Deployer is zero");
         require(params.multicall3.code.length != 0, "Multicall3 is missing - run script/local.sh multicall3 first");
-        _validateSplits(params.splits);
         _validateGroupChatParams(params);
 
         DeployCore.CoreConfig memory coreConfig = _loadCoreConfig(params);
@@ -273,7 +271,7 @@ contract DeployLocal is DeployCore {
         console2.log("ActionTarget      ", deployed.actionTarget);
         deployed.lpExecutor = address(new LpExecutor(deployed.actionTarget));
         console2.log("LpExecutor        ", deployed.lpExecutor);
-        deployed.groupActionExecutor = address(new GroupActionExecutor(deployed.actionTarget, params.splits));
+        deployed.groupActionExecutor = address(new GroupActionExecutor(deployed.actionTarget));
         console2.log("GroupActionExec   ", deployed.groupActionExecutor);
         deployed.groupServiceExecutor = address(new GroupServiceExecutor(deployed.groupActionExecutor));
         console2.log("GroupServiceExec  ", deployed.groupServiceExecutor);
@@ -357,7 +355,7 @@ contract DeployLocal is DeployCore {
         deployed.multicall3 = params.multicall3;
         deployed.pair = _validateDex(deployed, params);
         _validateCore(coreConfig, deployed);
-        _validateAction(deployed, params);
+        _validateAction(deployed);
         _validateGroupChat(deployed, params);
         _validatePeriphery(deployed);
 
@@ -397,45 +395,12 @@ contract DeployLocal is DeployCore {
         // AirdropDistributor.TOTAL_SHARE is a compile-time constant (1e18); the fixture must match it.
         require(params.totalShare == 1e18, "TOTAL_SHARE must equal AirdropDistributor.TOTAL_SHARE (1e18)");
 
-        params.splits = _envUintArray("GROUP_ACTION_SPLITS");
         params.actionRecentRounds = vm.envUint("GROUP_CHAT_ACTION_RECENT_ROUNDS");
         params.maxAdminIds = vm.envUint("GROUP_CHAT_MAX_ADMIN_IDS");
         params.minSupportToOpposeMultiplier = vm.envUint("GROUP_CHAT_MIN_SUPPORT_TO_OPPOSE_MULTIPLIER");
         params.banThresholdRatio = vm.envUint("GROUP_CHAT_BAN_THRESHOLD_RATIO");
         params.beforePostPlugin = vm.envAddress("GROUP_CHAT_BEFORE_POST_PLUGIN_ADDRESS");
         params.afterPostPlugin = vm.envAddress("GROUP_CHAT_AFTER_POST_PLUGIN_ADDRESS");
-    }
-
-    /// @dev Comma-separated decimal list (script/lib/params.sh has already expanded 1e17 -> 1e17's
-    ///      decimal form). An empty value yields an empty array, which the action repo allows.
-    function _envUintArray(string memory key) internal view returns (uint256[] memory values) {
-        string memory raw = vm.envString(key);
-        bytes memory rawBytes = bytes(raw);
-        if (rawBytes.length == 0) return new uint256[](0);
-
-        uint256 count = 1;
-        for (uint256 i = 0; i < rawBytes.length; i++) {
-            if (rawBytes[i] == ",") count++;
-        }
-        values = new uint256[](count);
-        bytes memory item = new bytes(rawBytes.length);
-        uint256 itemLength = 0;
-        uint256 index = 0;
-        for (uint256 i = 0; i <= rawBytes.length; i++) {
-            if (i == rawBytes.length || rawBytes[i] == ",") {
-                bytes memory slice = new bytes(itemLength);
-                for (uint256 j = 0; j < itemLength; j++) {
-                    slice[j] = item[j];
-                }
-                values[index] = vm.parseUint(string(slice));
-                index++;
-                itemLength = 0;
-            } else {
-                item[itemLength] = rawBytes[i];
-                itemLength++;
-            }
-        }
-        require(index == count, "split parsing failed");
     }
 
     function _loadCoreConfig(Params memory params) internal view returns (DeployCore.CoreConfig memory config) {
@@ -573,7 +538,7 @@ contract DeployLocal is DeployCore {
     /// ---------------------------------------------------------------------------------------
     /// action
     /// ---------------------------------------------------------------------------------------
-    function _validateAction(Deployed memory deployed, Params memory params) internal view {
+    function _validateAction(Deployed memory deployed) internal view {
         IActionTarget actionTarget = IActionTarget(deployed.actionTarget);
         require(actionTarget.MINT_ADDRESS() == deployed.mint, "ActionTarget.MINT mismatch");
         require(actionTarget.VOTE_ADDRESS() == deployed.vote, "ActionTarget.VOTE mismatch");
@@ -587,7 +552,6 @@ contract DeployLocal is DeployCore {
         );
         require(IActionExecutor(deployed.lpExecutor).STAKE_ADDRESS() == deployed.stake, "LpExecutor.STAKE mismatch");
 
-        IGroupActionExecutor groupAction = IGroupActionExecutor(deployed.groupActionExecutor);
         require(
             IActionExecutor(deployed.groupActionExecutor).ACTION_TARGET_ADDRESS() == deployed.actionTarget,
             "GroupActionExecutor.ACTION_TARGET mismatch"
@@ -604,12 +568,6 @@ contract DeployLocal is DeployCore {
             IActionExecutor(deployed.groupActionExecutor).PHASE_ADDRESS() == deployed.phase,
             "GroupActionExecutor.PHASE mismatch"
         );
-        uint256[] memory splits = groupAction.SPLITS();
-        require(splits.length == params.splits.length, "GroupActionExecutor.SPLITS length mismatch");
-        for (uint256 i = 0; i < splits.length; i++) {
-            require(splits[i] == params.splits[i], "GroupActionExecutor.SPLITS value mismatch");
-        }
-
         IGroupServiceExecutor groupService = IGroupServiceExecutor(deployed.groupServiceExecutor);
         require(
             IActionExecutor(deployed.groupServiceExecutor).ACTION_TARGET_ADDRESS() == deployed.actionTarget,
@@ -741,16 +699,6 @@ contract DeployLocal is DeployCore {
     /// ---------------------------------------------------------------------------------------
     /// local parameter validation
     /// ---------------------------------------------------------------------------------------
-    /// @dev Mirrors the check inside ../action/script/deploy/DeployAction.s.sol: each split is in
-    ///      (0, 1e18) and the list is strictly increasing. An empty list is legal (rank 1 only).
-    function _validateSplits(uint256[] memory splits) internal pure {
-        uint256 previous = 0;
-        for (uint256 i = 0; i < splits.length; i++) {
-            require(splits[i] != 0 && splits[i] < 1e18 && splits[i] > previous, "Invalid GroupAction splits");
-            previous = splits[i];
-        }
-    }
-
     /// @dev Mirrors ../group-chat/script/deploy/DeployGroupChat.s.sol's _validateConfig, minus the
     ///      checks that need a deployed MemberNFT (MAX_NAME_LENGTH >= 11 is asserted by
     ///      _validateGroupChat after the core deployment).

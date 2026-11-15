@@ -505,12 +505,9 @@ def main() -> int:
     contracts["UniswapV2Pair"]["blockNumber"] = contracts["Launch"]["blockNumber"]
 
     # ---- params: from params/<profile>/*.params, not from ambient environment variables ----
-    splits = [item for item in require_param(params, "GROUP_ACTION_SPLITS").split(",") if item]
-    for split in splits:
-        # params_expand_value has already turned 1e17 into decimal; reject anything else so a typo
-        # cannot become a string the frontend must interpret.
-        if not re.fullmatch(r"[0-9]+", split):
-            fail(f"GROUP_ACTION_SPLITS contains a non-decimal entry: {split!r}")
+    # No action-side parameter is exported any more: GroupActionExecutor's constructor is
+    # (actionTarget) only since ../action 652c270 removed the verification-open split schedule, so
+    # params.groupActionSplits is gone from the export. Frontend consumers must not expect it.
     token_name = require_param(params, "TOKEN_NAME")
     token_symbol = require_param(params, "TOKEN_SYMBOL")
 
@@ -601,7 +598,6 @@ def main() -> int:
             "phaseOriginBlocks": param_uint(params, "PHASE_ORIGIN_BLOCKS"),
             "phaseOriginPhaseBlocks": param_uint(params, "PHASE_ORIGIN_PHASE_BLOCKS"),
             "phaseTargetSeconds": param_uint(params, "PHASE_TARGET_SECONDS"),
-            "groupActionSplits": splits,
             "seedAccountCount": param_uint(params, "SEED_ACCOUNT_COUNT"),
             "seedMemberCount": param_uint(params, "SEED_MEMBER_COUNT"),
         },

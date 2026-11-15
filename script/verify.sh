@@ -212,9 +212,6 @@ check "export.params.phaseTargetSeconds" "$(call "$PHASE" 'TARGET_SECONDS()(uint
     "$(json_path params phaseTargetSeconds)"
 check "export.params.seedAccountCount" "$SEED_ACCOUNT_COUNT" "$(json_path params seedAccountCount)"
 check "export.params.seedMemberCount" "$SEED_MEMBER_COUNT" "$(json_path params seedMemberCount)"
-check "export.params.groupActionSplits" \
-    "$(python3 -c 'import json,os; raw=os.environ.get("GROUP_ACTION_SPLITS",""); print(json.dumps(raw.split(",") if raw else []))')" \
-    "$(json_path params groupActionSplits)"
 check "export.uniswapV2.factory" "$FACTORY" "$(json_path uniswapV2 factory)"
 check "export.uniswapV2.feeTo" "$(call "$FACTORY" 'feeTo()(address)')" "$(json_path uniswapV2 feeTo)"
 
@@ -360,8 +357,9 @@ printf '  \033[0;32mPASS\033[0m ETH balances of %s seeded accounts >= %s wei\n' 
 
 check "Multicall3.getBlockNumber() > 0" "true" \
     "$(gt "$(call "$MULTICALL3" 'getBlockNumber()(uint256)')" 0 && echo true || echo false)"
-# GroupActionExecutor.SPLITS() is asserted value-by-value at deploy time (DeployLocal._validateAction);
-# cast renders uint256[] with human units, so re-parsing it here would test the formatter, not the chain.
+# GroupActionExecutor has no SPLITS() getter any more (../action 652c270 took the verification-open
+# schedule out of the contract and its constructor now takes only actionTarget), so there is nothing
+# to re-check here.
 
 # library code (already covered by the code sweep, repeated here because linking is the risky part)
 for pair_name in "GroupActionJoin:$GROUP_ACTION_JOIN" "GroupActionManager:$GROUP_ACTION_MANAGER" \

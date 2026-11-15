@@ -260,13 +260,13 @@ export/
     "snapshotUri": "", "intendedSnapshotUri": "http://127.0.0.1:5180/airdrop/anvil31337_dev.json",
     "snapshotFile": "export/airdrop/anvil31337_dev.json"
   },
-  "params": { "tokenName": "TestLOVE20@TestWETH", "phaseOriginPhaseBlocks": 120, "groupActionSplits": ["…"] }
+  "params": { "tokenName": "TestLOVE20@TestWETH", "phaseOriginPhaseBlocks": 120, "phaseTargetSeconds": 12 }
 }
 ```
 
 `deployer`, `params.*` and `uniswapV2.feeTo` are data, not an echo of the shell that happened to run
 `make export`: `export.py` takes the deployer from the deploy broadcast receipts (and asserts it
-agrees with `DEPLOYER_ADDRESS` when that is set), parses the token/phase/seed/split values out of
+agrees with `DEPLOYER_ADDRESS` when that is set), parses the token/phase/seed values out of
 `params/anvil31337_dev/*.params`, and calls `feeTo()` (and `feeToSetter()`) on the factory over the
 live node. A non-zero `feeTo` is exported as-is with a warning; the deployment's
 `feeToSetter = address(0)` lock is what makes it zero on this profile, and `make verify` asserts both
@@ -659,7 +659,7 @@ anvil/
 │   ├── multicall3.params        canonical address, upstream signed tx + sha256, funding
 │   ├── airdrop.params           snapshot path + total share + synthetic fixture provenance
 │   ├── core.params              token/phase/mint/submit/stake + genesis airdrop root/delay
-│   ├── action.params            GROUP_ACTION_SPLITS (+ note: libraries are link-time)
+│   ├── action.params            no numeric parameter; only the note about link-time libraries
 │   ├── group-chat.params        rounds/admins/ban thresholds/plugin slots
 │   └── seed.params              how many members, liquidity, ETH, intended SNAPSHOT_URI
 ├── script/

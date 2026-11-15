@@ -91,6 +91,14 @@ contract SeedFlow is Script {
 
     uint256 internal constant WAD = 1e18;
 
+    /// @dev Deadline for Stake.stakeLiquidity, which gained a `deadline` argument together with the
+    ///      promised-waiting-phases work in ../core (IStake.stakeLiquidity is 6-arg since core 7b76609,
+    ///      still 6-arg in core 3f71379; Stake applies `beforeDeadline`, i.e. it reverts only once
+    ///      block.timestamp > deadline). The seed broadcasts in automine, so the window only has to
+    ///      outlive one mined transaction; 20 minutes is generous enough for a loaded CI box and is
+    ///      anchored to block.timestamp so it never starts in the past.
+    uint256 public constant SEED_STAKE_DEADLINE = 20 minutes;
+
     /// @dev ETH held back on top of the liquidity member's funding target for the gas IT signs after
     ///      step 1: AirdropDistributor.claim, token approve, MemberNFT.mint, token approve + WETH
     ///      approve, WETH.deposit (the wrap) and Stake.stakeLiquidity - seven transactions. Measured on
@@ -281,7 +289,8 @@ contract SeedFlow is Script {
                 params.liquidityTokenAmount,
                 params.liquidityParentTokenAmount,
                 params.liquidityPromisedWaitingPhases,
-                memberId
+                memberId,
+                block.timestamp + SEED_STAKE_DEADLINE
             );
         vm.stopBroadcast();
 
