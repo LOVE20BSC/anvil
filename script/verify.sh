@@ -306,12 +306,7 @@ check "AirdropDistributor.airdropInfo.remainingAmount == token balance" \
 check "LOVE20Token.balanceOf(AirdropDistributor)" "$expected_balance" \
     "$(call "$TOKEN" 'balanceOf(address)(uint256)' "$DISTRIBUTOR")"
 
-# Snapshot URI: core@4200d35 still only lets a LAUNCHED token's launcher member set it. The genesis
-# airdrop has no launcher member (configured with launcherMemberId 0 in the constructor) and
-# `launcherMemberIdByTokenAddress` no longer exists, so the only observable genesis state is
-# `airdropInfo.snapshotUri`; it MUST be empty. The intended URI lives in seed.params as SNAPSHOT_URI
-# until core exposes a genesis path.
-check "AirdropDistributor.airdropInfo.snapshotUri(genesis, not registrable on core@4200d35)" "" "$snapshot_uri"
+check "AirdropDistributor.airdropInfo.snapshotUri" "$GENESIS_AIRDROP_SNAPSHOT_URI" "$snapshot_uri"
 
 # The exported metadata is what the frontend consumes; make sure the new struct fields made it there.
 check "export.airdropDistributor.merkleRoot" "$merkle_root" "$(json_path airdropDistributor merkleRoot)"
@@ -419,9 +414,7 @@ done
     echo "  $TOKEN $unclaimed_share '$unclaimed_proof_args' --rpc-url $RPC_URL --private-key <claimant key>"
     echo '```'
     echo ""
-    echo "Snapshot URI: seed.params declares \`SNAPSHOT_URI=$SNAPSHOT_URI\`, but the genesis airdrop"
-    echo "has no launcher member and core@4200d35's \`onlySnapshotUriUpdater\` rejects that case for"
-    echo "every caller, so \`airdropInfo(genesisToken).snapshotUri\` is empty by design."
+    echo "Genesis snapshot URI is fixed at deployment: \`$GENESIS_AIRDROP_SNAPSHOT_URI\`."
 } >"$REPORT"
 
 say ""

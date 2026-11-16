@@ -86,7 +86,6 @@ contract SeedFlow is Script {
         uint256 liquidityParentTokenAmount;
         uint256 liquidityPromisedWaitingPhases;
         uint256 ethPerAccount;
-        string snapshotUri;
     }
 
     uint256 internal constant WAD = 1e18;
@@ -136,7 +135,7 @@ contract SeedFlow is Script {
         console2.log("  genesis claimableFromRound:", claimableFromRound);
 
         _fundEth(deployerKey, deployer, entries, params);
-        _registerSnapshotUri(addrs, params);
+        _checkSnapshotUri(addrs);
 
         uint256[] memory memberIds = new uint256[](params.memberCount);
         for (uint256 i = 0; i < params.memberCount; i++) {
@@ -198,35 +197,11 @@ contract SeedFlow is Script {
         console2.log("  eth: deployer", deployer, "balance", deployer.balance);
     }
 
-    // ------------------------------------------------------------------------------------------
-    // snapshot URI (launcher-only; not applicable to the genesis token on core@4200d35)
-    // ------------------------------------------------------------------------------------------
-    /// @dev Registers SNAPSHOT_URI through AirdropDistributor.updateSnapshotUri when core lets this
-    ///      seed account sign for the token.
-    ///
-    ///      core 4200d35 only lets the owner of the token's launcher member update the URI, and the
-    ///      genesis token is configured in the distributor's constructor with launcherMemberId = 0
-    ///      (src/distributor/AirdropDistributor.sol). `onlySnapshotUriUpdater` reverts
-    ///      `NotSnapshotUriUpdater(caller, 0)` for that id for every caller (core's own tests pin
-    ///      this). The per-token launcherMemberId getter was removed by core commit 0cdbe44, so the only
-    ///      observable genesis state left is `AirdropInfo.snapshotUri`: nothing to broadcast here.
-    ///      The method logs the intended URI, asserts that observable state, and leaves the wiring
-    ///      ready for the day core exposes a genesis path (a launched child token with a real
-    ///      launcher member would need its own branch again).
-    function _registerSnapshotUri(Addresses memory addrs, SeedParams memory params) internal view {
-        IAirdropDistributor distributor = IAirdropDistributor(addrs.airdropDistributor);
-        require(bytes(params.snapshotUri).length != 0, "SNAPSHOT_URI is empty");
-        console2.log("  snapshot uri (intended):", params.snapshotUri);
-
-        AirdropInfo memory info = distributor.airdropInfo(addrs.token);
-        require(info.merkleRoot != bytes32(0), "genesis airdrop is not configured");
+    function _checkSnapshotUri(Addresses memory addrs) internal view {
+        AirdropInfo memory info = IAirdropDistributor(addrs.airdropDistributor).airdropInfo(addrs.token);
         require(
-            bytes(info.snapshotUri).length == 0,
-            "genesis snapshot URI is non-empty - core changed the genesis path, register it here"
-        );
-        console2.log(
-            "  snapshot uri: NOT registered - core reserves updateSnapshotUri for launched tokens",
-            "(the genesis airdrop has no launcher member)"
+            keccak256(bytes(info.snapshotUri)) == keccak256(bytes(vm.envString("GENESIS_AIRDROP_SNAPSHOT_URI"))),
+            "genesis snapshot URI differs from deployment configuration"
         );
     }
 
@@ -357,11 +332,9 @@ contract SeedFlow is Script {
         params.liquidityParentTokenAmount = vm.envUint("SEED_LIQUIDITY_PARENT_TOKEN_AMOUNT");
         params.liquidityPromisedWaitingPhases = vm.envUint("SEED_LIQUIDITY_PROMISED_WAITING_PHASES");
         params.ethPerAccount = vm.envUint("SEED_ETH_PER_ACCOUNT");
-        params.snapshotUri = vm.envString("SNAPSHOT_URI");
 
         require(bytes(params.mnemonic).length != 0, "SEED_MNEMONIC is empty");
         require(bytes(params.namePrefix).length != 0, "SEED_MEMBER_NAME_PREFIX is empty");
-        require(bytes(params.snapshotUri).length != 0, "SNAPSHOT_URI is empty");
         require(params.liquidityTokenAmount != 0, "SEED_LIQUIDITY_TOKEN_AMOUNT is zero");
         require(params.liquidityParentTokenAmount != 0, "SEED_LIQUIDITY_PARENT_TOKEN_AMOUNT is zero");
     }

@@ -413,6 +413,7 @@ contract DeployLocal is DeployCore {
         config.dexConfig.pairFactory = address(0);
         config.genesisMerkleRoot = params.genesisMerkleRoot;
         config.genesisClaimDelayRounds = params.genesisClaimDelayRounds;
+        config.genesisSnapshotUri = vm.envString("GENESIS_AIRDROP_SNAPSHOT_URI");
         config.tokenName = vm.envString("TOKEN_NAME");
         config.tokenSymbol = vm.envString("TOKEN_SYMBOL");
         config.memberBaseDivisor = vm.envUint("MEMBER_BASE_DIVISOR");

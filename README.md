@@ -315,15 +315,14 @@ the airdrop page has both claimed (0–4) and claimable (5–9) state to exercis
 the distributor's `LAUNCH_AMOUNT` balance at `balanceOf(distributor) * share / remainingShare`; with
 equal shares each payout is exactly `1e26` and the distributor keeps `5e26` after the seed.
 
-**Snapshot URI — not registered for the genesis token.** `seed.params` declares
-`SNAPSHOT_URI=http://127.0.0.1:5180/airdrop/anvil31337_dev.json` (the file the frontend dev server
-serves from `public/airdrop/`), but core commit `141c931` only lets the owner of a **launched**
-token's `launcherMemberId` call `updateSnapshotUri`. The genesis token is configured in the
-distributor's constructor with `launcherMemberId = 0`, and `onlySnapshotUriUpdater` reverts
-`NotSnapshotUriUpdater(caller, 0)` for every caller; core's own tests pin this as permanent
-(`core/test/AirdropDistributor.t.sol`). The seed therefore logs the intended URI and asserts the
-on-chain value is empty; `export/deployments/*.json` carries it as `intendedSnapshotUri`. This is a
-core-side gap, not an anvil workaround.
+**Snapshot URI — fixed at deployment.** `core.params` supplies
+`GENESIS_AIRDROP_SNAPSHOT_URI`, pointing to
+`https://love20bsc.github.io/core/script/network/anvil31337_dev/airdrop.json`. `DeployLocal` passes it to the
+distributor's constructor; seed and verify compare the on-chain value with the configuration.
+The genesis token still has `launcherMemberId = 0`, so subsequent URI updates remain forbidden.
+The frontend bundles the snapshot and only needs the URI when its local file is unavailable or
+has a different root. Existing exports, including the example above, may still show an empty URI
+until a fresh deployment and export; changing the configuration cannot alter an old contract.
 
 ---
 
@@ -490,12 +489,16 @@ constructor provenance parameters they needed.
   double-hashed keccak leaves `keccak(keccak(abi.encode(account, share)))`, sorted-pair internal
   nodes, unpaired last node promoted, every proof re-verified before writing. Numbers are emitted as
   decimal **strings** (1e18 is not JS-safe as a number).
+* Deployment preflight in `DeployLocal` cross-checks the fixture root and totalShare against params
+  and requires totalShare to equal `1e18`. It does not repeat core's full snapshot checks for proofs,
+  accountCount, duplicate addresses and the sum of entry shares when reading an existing file;
+  the local generator verifies proofs and rejects duplicate addresses and invalid share allocations
+  when creating the fixture.
 * Provenance fields in the fixture (`sourceChainId 31337`, … `0x…C0FFEE01`) are synthetic and
   labelled as such: they feed the fixture format only — the new distributor has no provenance
   immutables, and this chain has no Burn deployment.
-* **Snapshot URI:** see §6. `seed.params` carries `SNAPSHOT_URI`, but core refuses
-  `updateSnapshotUri` for the genesis token (`launcherMemberId == 0`), so the on-chain URI is empty
-  on this profile. `launched` tokens can register one.
+* **Snapshot URI:** see §6. `core.params` supplies `GENESIS_AIRDROP_SNAPSHOT_URI` at construction.
+  Genesis URI updates remain forbidden; launched tokens can update theirs normally.
 
 ---
 
@@ -527,7 +530,7 @@ Headline values from the verified run:
 | `AirdropDistributor.isClaimed(genesis, seed[0])` | `true` |
 | `AirdropDistributor.airdropInfo(genesis).totalClaimedShare` / `totalRemainingShare` | `500000000000000000` / `500000000000000000` |
 | `AirdropDistributor.airdropInfo(genesis).totalClaimedAmount` / `remainingAmount` | `500000000000000000000000000` / `500000000000000000000000000` |
-| `AirdropDistributor.airdropInfo(genesis).snapshotUri` | `""` (core refuses genesis URI updates, §9) |
+| `AirdropDistributor.airdropInfo(genesis).snapshotUri` | equals `GENESIS_AIRDROP_SNAPSHOT_URI` (§6) |
 | ETH balance of each seeded account | ≥ `100000000000000000000` wei |
 | `Multicall3.getBlockNumber()` | > 0 |
 
@@ -605,11 +608,9 @@ ADR-0004 §6); it never hand-edits the address book. The deployer nonce is never
 1. **No real burn-derived snapshot.** The local chain has no `Burn` deployment, so the airdrop
    snapshot is synthetic (10 anvil accounts, equal shares, fake non-zero provenance). Shape and
    hashing match the canonical generator exactly, so the claim UI is exercised for real.
-2. **Genesis snapshot URI cannot be registered.** `AirdropDistributor.updateSnapshotUri` is limited
-   to the owner of a launched token's `launcherMemberId`; the genesis token's id is 0, which the
-   contract rejects for every caller (core commit `141c931`). `SNAPSHOT_URI` is therefore documented
-   in `seed.params` and exported as `intendedSnapshotUri`, while the on-chain value is empty (see
-   §6/§9). Launched tokens can register one normally.
+2. **Old exports need a fresh deployment for the genesis URI.** The URI is now a constructor
+   argument; existing contracts with an empty URI cannot be updated. Their matching bundled
+   snapshot still works. New exports also include public `coreParams` for frontend synchronization.
 3. **Address-determinism is per fresh chain.** Everything is plain `CREATE` from anvil account #0.
    `make bootstrap` asserts a fresh chain (block 0, nonce 0, no Multicall3) and refuses to reuse one,
    so a clean run is reproducible. Re-running `make deploy` manually on a used chain gives new
@@ -624,21 +625,6 @@ ADR-0004 §6); it never hand-edits the address book. The deployer nonce is never
    either (only fork configs in `compatibility/`).
 7. **dex must be built already.** `dex/build/` is gitignored upstream; this repo will not build it
    for you (that writes into `dex/`).
-
-## Blocked
-
-**One item is blocked in core, not in anvil:** registering `SNAPSHOT_URI` for the **genesis** token.
-`AirdropDistributor`'s constructor configures the genesis airdrop with `launcherMemberId = 0`
-(`core/src/distributor/AirdropDistributor.sol`, constructor `_configure(..., 0)`), and
-`onlySnapshotUriUpdater` reverts `NotSnapshotUriUpdater(caller, 0)` for that id for every caller
-(same file, modifier at the top; core's `test/AirdropDistributor.t.sol` asserts it is permanent).
-There is no setter and no Launch-side path. Anvil does everything it can: it carries the intended URI
-in `seed.params`, tries nothing that can only revert, logs the condition, verifies the on-chain value
-is empty, and exports `intendedSnapshotUri`. A core fix would be a genesis launch-time URI parameter
-or allowing `launcherMemberId == 0` to be updated by a designated launcher.
-
-Everything else runs end to end. `make bootstrap` ships 8545 as the default and the e2e chain can be
-bootstrapped on 8555.
 
 ---
 
@@ -658,10 +644,10 @@ anvil/
 │   ├── dex.params               WETH name/symbol, feeToSetter lock
 │   ├── multicall3.params        canonical address, upstream signed tx + sha256, funding
 │   ├── airdrop.params           snapshot path + total share + synthetic fixture provenance
-│   ├── core.params              token/phase/mint/submit/stake + genesis airdrop root/delay
+│   ├── core.params              token/phase/mint/submit/stake + genesis airdrop root/delay/URI
 │   ├── action.params            no numeric parameter; only the note about link-time libraries
 │   ├── group-chat.params        rounds/admins/ban thresholds/plugin slots
-│   └── seed.params              how many members, liquidity, ETH, intended SNAPSHOT_URI
+│   └── seed.params              how many members, liquidity, ETH
 ├── script/
 │   ├── local.sh                 orchestrator (preflight|fixture|anvil|stop|multicall3|libraries|deploy|seed|export|verify|build|clean|bootstrap)
 │   ├── pin-siblings.sh          make pin / pin-status / unpin / pin-lock (see "Pinned siblings")

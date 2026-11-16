@@ -515,9 +515,7 @@ def main() -> int:
     # `airdropInfo(token)` struct view (core@4200d35 collapsed the six per-token getters into it).
     # Field order: tokenAddress, merkleRoot, claimableFromRound, totalClaimedShare,
     # totalRemainingShare, totalClaimedAmount, remainingAmount, snapshotUri.
-    # The genesis airdrop has no launcher member, so snapshotUri is expected to be empty here;
-    # intendedSnapshotUri records what the seed WOULD register once core supports the genesis path.
-    # Never assume either value.
+    # The genesis URI is supplied to core at construction; read its actual on-chain value.
     airdrop_distributor = flat["AIRDROP_DISTRIBUTOR_ADDRESS"]
     genesis_token = flat["LOVE20_TOKEN_ADDRESS"]
     airdrop_info = cast_call_tuple(
@@ -589,9 +587,10 @@ def main() -> int:
             "totalClaimedAmount": total_claimed_amount,
             "remainingAmount": remaining_amount,
             "snapshotUri": onchain_snapshot_uri,
-            "intendedSnapshotUri": require_param(params, "SNAPSHOT_URI"),
+            "intendedSnapshotUri": require_param(params, "GENESIS_AIRDROP_SNAPSHOT_URI"),
             "snapshotFile": f"export/airdrop/{profile}.json",
         },
+        "coreParams": parse_params_file(ROOT / "params" / profile / "core.params"),
         "params": {
             "tokenName": token_name,
             "tokenSymbol": token_symbol,

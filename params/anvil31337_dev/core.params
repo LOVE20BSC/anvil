@@ -84,3 +84,6 @@ FEE_SETTLEMENT_RATIO=25e14
 # `feeTo` is permanently zero and no protocol fee is ever minted. The profile must say so.
 SWAP_FEE_FOR_LP_RATIO=3000000000000000 # 0.30%, all of it to LPs
 SWAP_FEE_FOR_PROTOCOL_RATIO=0          # protocol fee permanently off on this DEX
+
+# Genesis snapshot URI is fixed at deployment; the frontend bundles this snapshot locally.
+GENESIS_AIRDROP_SNAPSHOT_URI=https://love20bsc.github.io/core/script/network/anvil31337_dev/airdrop.json

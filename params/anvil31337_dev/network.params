@@ -1,7 +1,7 @@
 # Local chain process + connection parameters for the anvil31337_dev profile.
 #
 # These are OUR values (this repo is the source of truth for the local chain), not a copy of any
-# sibling repo's network.params. The sibling files only pin CHAIN_ID / RPC_URL / ETHERSCAN_API_KEY;
+# sibling repo's network.params. The sibling files only pin CHAIN_ID / public RPC_URL;
 # the process flags below are what `make anvil` needs and they are the reason this file exists.
 #
 # The chain is started by `anvil` with exactly these flags:
